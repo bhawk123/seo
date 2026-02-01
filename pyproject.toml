@@ -1,0 +1,47 @@
+[project]
+name = "seo"
+version = "0.1.0"
+description = "Website crawler and SEO evaluator using LLM"
+authors = [
+    {name = "Brett Hawkins",email = "bhawk123@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+    "openai>=1.0.0",
+    "anthropic>=0.18.0",
+    "python-dotenv>=1.0.0",
+    "python-toon>=0.1.3",
+    "jinja2>=3.1.0",
+    "markdown>=3.5.0",
+    "httpx>=0.28.1",
+    "python-wappalyzer (>=0.3.1,<0.4.0)",
+    "setuptools (>=80.9.0,<81.0.0)",
+    "pydantic>=2.0.0",
+    "rebrowser-playwright>=1.49.1",
+    "pyyaml (>=6.0.3,<7.0.0)",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+]
+
+[project.scripts]
+seo-analyzer = "seo.cli:main"
+postinstall = "scripts:postinstall"
+
+
+[tool.poetry]
+packages = [{include = "seo", from = "src"}]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

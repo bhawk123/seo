@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PSI Report</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; line-height: 1.6; }
+        .container { max-width: 900px; margin: 0 auto; padding: 24px; }
+        header { background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%); color: white; padding: 24px; margin-bottom: 24px; border-radius: 8px; }
+        header h1 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+        header .url { font-size: 13px; opacity: 0.9; word-break: break-all; }
+        header .url a { color: white; }
+        header .meta { font-size: 12px; opacity: 0.7; margin-top: 8px; }
+        .scores-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+        @media (max-width: 600px) { .scores-grid { grid-template-columns: repeat(2, 1fr); } }
+        .score-card { background: white; border-radius: 8px; padding: 16px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .score-card h3 { font-size: 11px; text-transform: uppercase; color: #666; margin-bottom: 8px; }
+        .score-value { font-size: 36px; font-weight: 700; }
+        .good { color: #0cce6b; }
+        .needs-improvement { color: #ffa400; }
+        .poor { color: #ff4e42; }
+        .section { background: white; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .section h2 { font-size: 14px; font-weight: 600; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid #eee; text-transform: uppercase; color: #666; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        @media (max-width: 600px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
+        .metric { padding: 12px; background: #f9fafb; border-radius: 6px; text-align: center; }
+        .metric .label { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 4px; }
+        .metric .value { font-size: 18px; font-weight: 600; }
+        .opportunity { padding: 12px 0; border-bottom: 1px solid #eee; }
+        .opportunity:last-child { border-bottom: none; }
+        .opp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .opp-title { font-weight: 500; font-size: 14px; }
+        .opp-savings { font-size: 13px; color: #ff4e42; font-weight: 500; }
+        .opp-desc { font-size: 12px; color: #666; }
+        .back-link { display: inline-block; margin-bottom: 16px; color: #3182ce; text-decoration: none; font-size: 14px; }
+        .back-link:hover { text-decoration: underline; }
+        footer { text-align: center; padding: 24px; color: #666; font-size: 12px; }
+        footer a { color: #3182ce; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .badge.good { background: #d4edda; color: #155724; }
+        .badge.needs-improvement { background: #fff3cd; color: #856404; }
+        .badge.poor { background: #f8d7da; color: #721c24; }
+        .loading { text-align: center; padding: 60px; color: #666; }
+        .error { text-align: center; padding: 60px; color: #c53030; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="../report.html" class="back-link">&larr; Back to Full Report</a>
+        <div id="content">
+            <div class="loading">Loading report...</div>
+        </div>
+        <footer>
+            <p>Data captured during crawl | <a id="freshLink" href="#" target="_blank">Run Fresh Analysis on PageSpeed Insights &rarr;</a></p>
+        </footer>
+    </div>
+
+    <script>
+        function getScoreClass(score) {
+            if (score >= 90) return 'good';
+            if (score >= 50) return 'needs-improvement';
+            return 'poor';
+        }
+
+        function formatTime(ms) {
+            return (ms / 1000).toFixed(1) + 's';
+        }
+
+        function renderReport(data) {
+            const content = document.getElementById('content');
+            document.title = 'PSI Report: ' + data.url;
+            document.getElementById('freshLink').href = 'https://pagespeed.web.dev/analysis?url=' + encodeURIComponent(data.url);
+
+            let html = `
+                <header>
+                    <h1>PageSpeed Insights Report</h1>
+                    <div class="url"><a href="${data.url}" target="_blank">${data.url}</a></div>
+                    <div class="meta">
+                        Strategy: ${(data.strategy || 'mobile').toUpperCase()} |
+                        Analyzed: ${data.fetch_time || 'Unknown'}
+                        ${data.crux_data?.overall_category ? `| Field Data: <span class="badge ${getScoreClass(data.crux_data.overall_category === 'FAST' ? 90 : data.crux_data.overall_category === 'AVERAGE' ? 70 : 30)}">${data.crux_data.overall_category}</span>` : ''}
+                    </div>
+                </header>
+
+                <div class="scores-grid">
+                    ${data.scores.performance != null ? `
+                    <div class="score-card">
+                        <h3>Performance</h3>
+                        <div class="score-value ${getScoreClass(data.scores.performance)}">${Math.round(data.scores.performance)}</div>
+                    </div>` : ''}
+                    ${data.scores.accessibility != null ? `
+                    <div class="score-card">
+                        <h3>Accessibility</h3>
+                        <div class="score-value ${getScoreClass(data.scores.accessibility)}">${Math.round(data.scores.accessibility)}</div>
+                    </div>` : ''}
+                    ${data.scores.best_practices != null ? `
+                    <div class="score-card">
+                        <h3>Best Practices</h3>
+                        <div class="score-value ${getScoreClass(data.scores.best_practices)}">${Math.round(data.scores.best_practices)}</div>
+                    </div>` : ''}
+                    ${data.scores.seo != null ? `
+                    <div class="score-card">
+                        <h3>SEO</h3>
+                        <div class="score-value ${getScoreClass(data.scores.seo)}">${Math.round(data.scores.seo)}</div>
+                    </div>` : ''}
+                </div>
+            `;
+
+            if (data.metrics) {
+                const m = data.metrics;
+                html += `
+                <div class="section">
+                    <h2>Core Web Vitals & Metrics</h2>
+                    <div class="metrics-grid">
+                        ${m.fcp ? `<div class="metric"><div class="label">First Contentful Paint</div><div class="value ${getScoreClass(m.fcp <= 1800 ? 90 : m.fcp <= 3000 ? 70 : 30)}">${formatTime(m.fcp)}</div></div>` : ''}
+                        ${m.lcp ? `<div class="metric"><div class="label">Largest Contentful Paint</div><div class="value ${getScoreClass(m.lcp <= 2500 ? 90 : m.lcp <= 4000 ? 70 : 30)}">${formatTime(m.lcp)}</div></div>` : ''}
+                        ${m.tbt != null ? `<div class="metric"><div class="label">Total Blocking Time</div><div class="value ${getScoreClass(m.tbt <= 200 ? 90 : m.tbt <= 600 ? 70 : 30)}">${Math.round(m.tbt)}ms</div></div>` : ''}
+                        ${m.cls != null ? `<div class="metric"><div class="label">Cumulative Layout Shift</div><div class="value ${getScoreClass(m.cls <= 0.1 ? 90 : m.cls <= 0.25 ? 70 : 30)}">${m.cls.toFixed(3)}</div></div>` : ''}
+                        ${m.si ? `<div class="metric"><div class="label">Speed Index</div><div class="value ${getScoreClass(m.si <= 3400 ? 90 : m.si <= 5800 ? 70 : 30)}">${formatTime(m.si)}</div></div>` : ''}
+                        ${m.tti ? `<div class="metric"><div class="label">Time to Interactive</div><div class="value ${getScoreClass(m.tti <= 3800 ? 90 : m.tti <= 7300 ? 70 : 30)}">${formatTime(m.tti)}</div></div>` : ''}
+                    </div>
+                </div>`;
+            }
+
+            if (data.opportunities?.length) {
+                html += `
+                <div class="section">
+                    <h2>Optimization Opportunities</h2>
+                    ${data.opportunities.map(opp => `
+                    <div class="opportunity">
+                        <div class="opp-header">
+                            <span class="opp-title">${opp.title}</span>
+                            <span class="opp-savings">
+                                ${opp.savings_ms > 0 ? `~${(opp.savings_ms / 1000).toFixed(1)}s` : ''}
+                                ${opp.savings_bytes > 1024 ? ` (${Math.round(opp.savings_bytes / 1024)} KB)` : ''}
+                            </span>
+                        </div>
+                        <div class="opp-desc">${opp.description || ''}</div>
+                    </div>`).join('')}
+                </div>`;
+            }
+
+            content.innerHTML = html;
+        }
+
+        // Get JSON filename from URL parameter
+        const params = new URLSearchParams(window.location.search);
+        const file = params.get('file');
+
+        if (file) {
+            fetch(file)
+                .then(r => r.json())
+                .then(renderReport)
+                .catch(e => {
+                    document.getElementById('content').innerHTML = `<div class="error">Error loading report: ${e.message}</div>`;
+                });
+        } else {
+            document.getElementById('content').innerHTML = '<div class="error">No report file specified. Use ?file=filename.json</div>';
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PSI Report: {{ url }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; line-height: 1.6; }
+        .container { max-width: 900px; margin: 0 auto; padding: 24px; }
+        header { background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%); color: white; padding: 24px; margin-bottom: 24px; border-radius: 8px; }
+        header h1 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+        header .url { font-size: 13px; opacity: 0.9; word-break: break-all; }
+        header .meta { font-size: 12px; opacity: 0.7; margin-top: 8px; }
+        .scores-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+        @media (max-width: 600px) { .scores-grid { grid-template-columns: repeat(2, 1fr); } }
+        .score-card { background: white; border-radius: 8px; padding: 16px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .score-card h3 { font-size: 11px; text-transform: uppercase; color: #666; margin-bottom: 8px; }
+        .score-value { font-size: 36px; font-weight: 700; }
+        .score-value.good { color: #0cce6b; }
+        .score-value.needs-improvement { color: #ffa400; }
+        .score-value.poor { color: #ff4e42; }
+        .section { background: white; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .section h2 { font-size: 14px; font-weight: 600; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid #eee; text-transform: uppercase; color: #666; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        @media (max-width: 600px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
+        .metric { padding: 12px; background: #f9fafb; border-radius: 6px; text-align: center; }
+        .metric .label { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 4px; }
+        .metric .value { font-size: 18px; font-weight: 600; }
+        .metric .value.good { color: #0cce6b; }
+        .metric .value.needs-improvement { color: #ffa400; }
+        .metric .value.poor { color: #ff4e42; }
+        .opportunity { padding: 12px 0; border-bottom: 1px solid #eee; }
+        .opportunity:last-child { border-bottom: none; }
+        .opp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .opp-title { font-weight: 500; font-size: 14px; }
+        .opp-savings { font-size: 13px; color: #ff4e42; font-weight: 500; }
+        .opp-desc { font-size: 12px; color: #666; }
+        .opp-desc a { color: #3182ce; }
+        .back-link { display: inline-block; margin-bottom: 16px; color: #3182ce; text-decoration: none; font-size: 14px; }
+        .back-link:hover { text-decoration: underline; }
+        footer { text-align: center; padding: 24px; color: #666; font-size: 12px; }
+        footer a { color: #3182ce; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .badge.good { background: #d4edda; color: #155724; }
+        .badge.needs-improvement { background: #fff3cd; color: #856404; }
+        .badge.poor { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="../report.html" class="back-link">&larr; Back to Full Report</a>
+
+        <header>
+            <h1>PageSpeed Insights Report</h1>
+            <div class="url"><a href="{{ url }}" target="_blank" style="color: white;">{{ url }}</a></div>
+            <div class="meta">
+                Strategy: {{ strategy | default('mobile') | upper }} |
+                Analyzed: {{ fetch_time | default('Unknown') }}
+                {% if crux_data and crux_data.overall_category %}
+                | Field Data: <span class="badge {% if crux_data.overall_category == 'FAST' %}good{% elif crux_data.overall_category == 'AVERAGE' %}needs-improvement{% else %}poor{% endif %}">{{ crux_data.overall_category }}</span>
+                {% endif %}
+            </div>
+        </header>
+
+        <div class="scores-grid">
+            {% if scores.performance is not none %}
+            <div class="score-card">
+                <h3>Performance</h3>
+                <div class="score-value {% if scores.performance >= 90 %}good{% elif scores.performance >= 50 %}needs-improvement{% else %}poor{% endif %}">{{ scores.performance | int }}</div>
+            </div>
+            {% endif %}
+            {% if scores.accessibility is not none %}
+            <div class="score-card">
+                <h3>Accessibility</h3>
+                <div class="score-value {% if scores.accessibility >= 90 %}good{% elif scores.accessibility >= 50 %}needs-improvement{% else %}poor{% endif %}">{{ scores.accessibility | int }}</div>
+            </div>
+            {% endif %}
+            {% if scores.best_practices is not none %}
+            <div class="score-card">
+                <h3>Best Practices</h3>
+                <div class="score-value {% if scores.best_practices >= 90 %}good{% elif scores.best_practices >= 50 %}needs-improvement{% else %}poor{% endif %}">{{ scores.best_practices | int }}</div>
+            </div>
+            {% endif %}
+            {% if scores.seo is not none %}
+            <div class="score-card">
+                <h3>SEO</h3>
+                <div class="score-value {% if scores.seo >= 90 %}good{% elif scores.seo >= 50 %}needs-improvement{% else %}poor{% endif %}">{{ scores.seo | int }}</div>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if metrics %}
+        <div class="section">
+            <h2>Core Web Vitals & Metrics</h2>
+            <div class="metrics-grid">
+                {% if metrics.fcp %}
+                <div class="metric">
+                    <div class="label">First Contentful Paint</div>
+                    <div class="value {% if metrics.fcp <= 1800 %}good{% elif metrics.fcp <= 3000 %}needs-improvement{% else %}poor{% endif %}">{{ (metrics.fcp / 1000) | round(1) }}s</div>
+                </div>
+                {% endif %}
+                {% if metrics.lcp %}
+                <div class="metric">
+                    <div class="label">Largest Contentful Paint</div>
+                    <div class="value {% if metrics.lcp <= 2500 %}good{% elif metrics.lcp <= 4000 %}needs-improvement{% else %}poor{% endif %}">{{ (metrics.lcp / 1000) | round(1) }}s</div>
+                </div>
+                {% endif %}
+                {% if metrics.tbt is not none %}
+                <div class="metric">
+                    <div class="label">Total Blocking Time</div>
+                    <div class="value {% if metrics.tbt <= 200 %}good{% elif metrics.tbt <= 600 %}needs-improvement{% else %}poor{% endif %}">{{ metrics.tbt | int }}ms</div>
+                </div>
+                {% endif %}
+                {% if metrics.cls is not none %}
+                <div class="metric">
+                    <div class="label">Cumulative Layout Shift</div>
+                    <div class="value {% if metrics.cls <= 0.1 %}good{% elif metrics.cls <= 0.25 %}needs-improvement{% else %}poor{% endif %}">{{ metrics.cls | round(3) }}</div>
+                </div>
+                {% endif %}
+                {% if metrics.si %}
+                <div class="metric">
+                    <div class="label">Speed Index</div>
+                    <div class="value {% if metrics.si <= 3400 %}good{% elif metrics.si <= 5800 %}needs-improvement{% else %}poor{% endif %}">{{ (metrics.si / 1000) | round(1) }}s</div>
+                </div>
+                {% endif %}
+                {% if metrics.tti %}
+                <div class="metric">
+                    <div class="label">Time to Interactive</div>
+                    <div class="value {% if metrics.tti <= 3800 %}good{% elif metrics.tti <= 7300 %}needs-improvement{% else %}poor{% endif %}">{{ (metrics.tti / 1000) | round(1) }}s</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if opportunities %}
+        <div class="section">
+            <h2>Optimization Opportunities</h2>
+            {% for opp in opportunities %}
+            <div class="opportunity">
+                <div class="opp-header">
+                    <span class="opp-title">{{ opp.title }}</span>
+                    <span class="opp-savings">
+                        {% if opp.savings_ms and opp.savings_ms > 0 %}~{{ (opp.savings_ms / 1000) | round(1) }}s{% endif %}
+                        {% if opp.savings_bytes and opp.savings_bytes > 1024 %} ({{ (opp.savings_bytes / 1024) | round(0) | int }} KB){% endif %}
+                    </span>
+                </div>
+                <div class="opp-desc">{{ opp.description }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <footer>
+            <p>Data captured during crawl | <a href="https://pagespeed.web.dev/analysis?url={{ url | urlencode }}" target="_blank">Run Fresh Analysis on PageSpeed Insights &rarr;</a></p>
+        </footer>
+    </div>
+</body>
+</html>
