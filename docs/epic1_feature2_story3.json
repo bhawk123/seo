@@ -1,0 +1,77 @@
+{
+  "title": "Phase 1B-3: Verify Session Isolation Between Crawls",
+  "objective": "Ensure that each call to `crawl` operates in a completely isolated environment, preventing cross-contamination of sessions, cookies, or local storage between different crawl operations.",
+  "phase0_poc": false,
+  "requirements": [
+    "The implementation of `crawl` MUST use a new `BrowserContext` for every single call, as established in the previous story.",
+    "An integration test MUST be created to crawl a page that sets a cookie.",
+    "The test MUST then immediately crawl a second, different page using the same `BrowserCrawler` instance.",
+    "The test MUST assert that the cookie from the first crawl is NOT present during the second crawl.",
+    "A similar integration test MUST be performed to verify the isolation of `localStorage`."
+  ],
+  "acceptance_criteria": [
+    "Crawling two different pages in sequence using the same crawler instance does not share cookies between them.",
+    "Crawling two different pages in sequence using the same crawler instance does not share local storage between them."
+  ],
+  "target_files": [
+    {
+      "file_path": "tests/test_browser_crawler.py",
+      "integration_points": [
+        "Add new integration test `test_crawl_isolation_cookies`.",
+        "Add new integration test `test_crawl_isolation_local_storage`."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Cookie isolation",
+      "when": [
+        "`crawl` is called for a URL that sets a cookie 'user=test'",
+        "`crawl` is then called for a different URL on the same domain"
+      ],
+      "then": [
+        "The second crawl's browser context does not contain the 'user=test' cookie"
+      ]
+    },
+    {
+      "name": "Local storage isolation",
+      "when": [
+        "`crawl` is called for a URL that sets a localStorage item 'token=abc'",
+        "`crawl` is then called for a different URL on the same domain"
+      ],
+      "then": [
+        "The second crawl's browser context does not contain the 'token=abc' localStorage item"
+      ]
+    }
+  ],
+  "configuration": {
+    "env_variables": [],
+    "yaml_config": null
+  },
+  "security": {
+    "requirements": [
+      "This story's objective is a security requirement. By ensuring context isolation, it prevents session data from leaking between crawls of different sites, which would be a critical vulnerability."
+    ]
+  },
+  "performance": {
+    "slos": [
+      "The overhead of creating a new `BrowserContext` SHOULD be less than 50ms on average."
+    ]
+  },
+  "error_handling": [],
+  "observability": {
+    "logging": [
+      "At DEBUG level, log the creation and destruction of BrowserContext IDs for each `crawl` call to aid in debugging isolation issues."
+    ],
+    "metrics": []
+  },
+  "migration_plan": {
+    "deployment_steps": [
+      "Deploy updated code and new integration tests to the CI/CD pipeline."
+    ],
+    "rollback_steps": [
+      "Revert the commit containing the new tests and any related code changes."
+    ]
+  },
+  "feature_flag": "enable_browser_crawler_core"
+}

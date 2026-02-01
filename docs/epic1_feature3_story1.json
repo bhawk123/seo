@@ -1,0 +1,74 @@
+{
+  "title": "Phase 1C-1: Spike - BrowserCrawler Integration PoC",
+  "objective": "To validate that the `BrowserCrawler` context manager can be successfully invoked from a site-level crawling orchestrator to crawl a single page, proving the integration pattern before building out the full site-level logic.",
+  "phase0_poc": true,
+  "requirements": [
+    "A test script or a temporary method in `src/seo/site_crawler.py` MUST be created to serve as the orchestrator for this PoC.",
+    "The orchestrator MUST instantiate a `BrowserConfig` object.",
+    "The orchestrator MUST use the `async with BrowserCrawler(config) as crawler:` pattern.",
+    "Inside the context, the orchestrator MUST call `await crawler.crawl(url)` with a hardcoded URL.",
+    "The HTML result from the crawl MUST be received and its length SHOULD be logged to confirm success."
+  ],
+  "acceptance_criteria": [
+    "Executing the PoC script successfully launches a browser, crawls the page, and closes the browser.",
+    "Logs confirm the `BrowserCrawler`'s context manager enters and exits cleanly.",
+    "The PoC script prints or logs the size of the retrieved HTML content."
+  ],
+  "target_files": [
+    {
+      "file_path": "src/seo/site_crawler.py",
+      "integration_points": [
+        "Temporarily add a PoC method to test the `BrowserCrawler` integration."
+      ]
+    },
+    {
+      "file_path": "src/seo/browser_crawler.py",
+      "integration_points": [
+        "No changes needed; this story consumes the `BrowserCrawler` as built in Feature 1B."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Orchestrate a single-page browser crawl",
+      "when": [
+        "The PoC script is executed"
+      ],
+      "then": [
+        "A `BrowserCrawler` instance is created via its context manager.",
+        "A page is successfully crawled.",
+        "The browser is shut down gracefully.",
+        "The orchestrator receives the HTML content."
+      ]
+    }
+  ],
+  "configuration": {},
+  "security": {
+    "requirements": []
+  },
+  "performance": {
+    "slos": []
+  },
+  "error_handling": [
+    {
+      "error": "Any exception from BrowserCrawler",
+      "message": "The orchestrator PoC should log any exception that propagates up from `BrowserCrawler`."
+    }
+  ],
+  "observability": {
+    "logging": [
+      "Log the start and end of the PoC orchestration.",
+      "Log the length of the returned HTML to verify success."
+    ],
+    "metrics": []
+  },
+  "migration_plan": {
+    "deployment_steps": [
+      "This is a spike and will not be deployed to production directly."
+    ],
+    "rollback_steps": [
+      "N/A for a non-deployed spike."
+    ]
+  },
+  "feature_flag": "enable_browser_site_crawler_module"
+}

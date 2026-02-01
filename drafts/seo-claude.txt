@@ -1,0 +1,602 @@
+j# seo_analyzer.py
+import asyncio
+import aiohttp
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
+import json
+from typing import Dict, List, Set, Optional
+from dataclasses import dataclass
+import anthropic
+from langchain.tools import tool
+from langchain_anthropic import ChatAnthropic
+import requests
+from collections import defaultdict
+
+@dataclass
+class PageAnalysis:
+    url: str
+    title: str
+    meta_description: str
+    meta_keywords: List[str]
+    h1_tags: List[str]
+    h2_tags: List[str]
+    images_without_alt: int
+    total_images: int
+    internal_links: int
+    external_links: int
+    word_count: int
+    load_time: float
+    status_code: int
+    canonical_url: Optional[str]
+    robots_directives: Dict
+    schema_markup: List[Dict]
+    open_graph: Dict
+
+class SEOCrawler:
+    def __init__(self, max_pages: int = 50):
+        self.max_pages = max_pages
+        self.visited_urls: Set[str] = set()
+        self.to_visit: List[str] = []
+        self.site_data: Dict[str, PageAnalysis] = {}
+        
+    async def crawl_page(self, session: aiohttp.ClientSession, url: str) -> Optional[PageAnalysis]:
+        """Crawl a single page and extract SEO data"""
+        try:
+            start_time = asyncio.get_event_loop().time()
+            async with session.get(url, timeout=10) as response:
+                load_time = asyncio.get_event_loop().time() - start_time
+                html = await response.text()
+                soup = BeautifulSoup(html, 'html.parser')
+                
+                # Extract SEO elements
+                title = soup.find('title')
+                title_text = title.text if title else ""
+                
+                meta_desc = soup.find('meta', attrs={'name': 'description'})
+                meta_description = meta_desc.get('content', '') if meta_desc else ""
+                
+                # Extract all meta keywords
+                meta_keywords = []
+                for meta in soup.find_all('meta', attrs={'name': 'keywords'}):
+                    keywords = meta.get('content', '').split(',')
+                    meta_keywords.extend([k.strip() for k in keywords])
+                
+                # Headers
+                h1_tags = [h1.text.strip() for h1 in soup.find_all('h1')]
+                h2_tags = [h2.text.strip() for h2 in soup.find_all('h2')]
+                
+                # Images
+                images = soup.find_all('img')
+                images_without_alt = sum(1 for img in images if not img.get('alt'))
+                
+                # Links analysis
+                internal_links = 0
+                external_links = 0
+                base_domain = urlparse(url).netloc
+                
+                for link in soup.find_all('a', href=True):
+                    href = link['href']
+                    if href.startswith('http'):
+                        link_domain = urlparse(href).netloc
+                        if link_domain == base_domain:
+                            internal_links += 1
+                            # Add to crawl queue
+                            full_url = urljoin(url, href)
+                            if full_url not in self.visited_urls and len(self.to_visit) < self.max_pages:
+                                self.to_visit.append(full_url)
+                        else:
+                            external_links += 1
+                    else:
+                        internal_links += 1
+                        full_url = urljoin(url, href)
+                        if full_url not in self.visited_urls and len(self.to_visit) < self.max_pages:
+                            self.to_visit.append(full_url)
+                
+                # Word count
+                text = soup.get_text()
+                word_count = len(text.split())
+                
+                # Canonical URL
+                canonical = soup.find('link', attrs={'rel': 'canonical'})
+                canonical_url = canonical.get('href') if canonical else None
+                
+                # Robots meta
+                robots_meta = soup.find('meta', attrs={'name': 'robots'})
+                robots_directives = {}
+                if robots_meta:
+                    content = robots_meta.get('content', '').lower()
+                    robots_directives = {
+                        'noindex': 'noindex' in content,
+                        'nofollow': 'nofollow' in content,
+                        'noarchive': 'noarchive' in content
+                    }
+                
+                # Schema markup
+                schema_scripts = soup.find_all('script', type='application/ld+json')
+                schema_markup = []
+                for script in schema_scripts:
+                    try:
+                        schema_data = json.loads(script.string)
+                        schema_markup.append(schema_data)
+                    except:
+                        pass
+                
+                # Open Graph
+                open_graph = {}
+                for meta in soup.find_all('meta', property=True):
+                    if meta.get('property', '').startswith('og:'):
+                        open_graph[meta['property']] = meta.get('content', '')
+                
+                return PageAnalysis(
+                    url=url,
+                    title=title_text,
+                    meta_description=meta_description,
+                    meta_keywords=meta_keywords,
+                    h1_tags=h1_tags,
+                    h2_tags=h2_tags,
+                    images_without_alt=images_without_alt,
+                    total_images=len(images),
+                    internal_links=internal_links,
+                    external_links=external_links,
+                    word_count=word_count,
+                    load_time=load_time,
+                    status_code=response.status,
+                    canonical_url=canonical_url,
+                    robots_directives=robots_directives,
+                    schema_markup=schema_markup,
+                    open_graph=open_graph
+                )
+                
+        except Exception as e:
+            print(f"Error crawling {url}: {str(e)}")
+            return None
+    
+    async def crawl_site(self, start_url: str) -> Dict[str, PageAnalysis]:
+        """Crawl entire site starting from URL"""
+        self.to_visit = [start_url]
+        
+        async with aiohttp.ClientSession() as session:
+            while self.to_visit and len(self.visited_urls) < self.max_pages:
+                url = self.to_visit.pop(0)
+                if url in self.visited_urls:
+                    continue
+                    
+                self.visited_urls.add(url)
+                page_data = await self.crawl_page(session, url)
+                
+                if page_data:
+                    self.site_data[url] = page_data
+                    print(f"Crawled: {url} ({len(self.visited_urls)}/{self.max_pages})")
+                
+                # Rate limiting
+                await asyncio.sleep(0.5)
+        
+        return self.site_data
+
+class SEOAnalyzer:
+    def __init__(self, anthropic_api_key: str):
+        self.llm = ChatAnthropic(
+            anthropic_api_key=anthropic_api_key,
+            model="claude-3-opus-20240229",
+            temperature=0.3
+        )
+        
+    def analyze_technical_seo(self, site_data: Dict[str, PageAnalysis]) -> Dict:
+        """Analyze technical SEO issues"""
+        issues = {
+            'missing_titles': [],
+            'duplicate_titles': defaultdict(list),
+            'missing_meta_descriptions': [],
+            'short_meta_descriptions': [],
+            'long_meta_descriptions': [],
+            'missing_h1': [],
+            'multiple_h1': [],
+            'images_without_alt': [],
+            'slow_pages': [],
+            'broken_links': [],
+            'missing_canonical': [],
+            'thin_content': []
+        }
+        
+        titles_seen = defaultdict(list)
+        
+        for url, page in site_data.items():
+            # Title issues
+            if not page.title:
+                issues['missing_titles'].append(url)
+            else:
+                titles_seen[page.title].append(url)
+            
+            # Meta description issues
+            if not page.meta_description:
+                issues['missing_meta_descriptions'].append(url)
+            elif len(page.meta_description) < 120:
+                issues['short_meta_descriptions'].append((url, len(page.meta_description)))
+            elif len(page.meta_description) > 160:
+                issues['long_meta_descriptions'].append((url, len(page.meta_description)))
+            
+            # H1 issues
+            if not page.h1_tags:
+                issues['missing_h1'].append(url)
+            elif len(page.h1_tags) > 1:
+                issues['multiple_h1'].append((url, len(page.h1_tags)))
+            
+            # Image issues
+            if page.images_without_alt > 0:
+                issues['images_without_alt'].append((url, page.images_without_alt, page.total_images))
+            
+            # Performance issues
+            if page.load_time > 3.0:
+                issues['slow_pages'].append((url, page.load_time))
+            
+            # Content issues
+            if page.word_count < 300:
+                issues['thin_content'].append((url, page.word_count))
+            
+            # Canonical issues
+            if not page.canonical_url:
+                issues['missing_canonical'].append(url)
+        
+        # Find duplicate titles
+        for title, urls in titles_seen.items():
+            if len(urls) > 1:
+                issues['duplicate_titles'][title] = urls
+        
+        return issues
+    
+    def generate_llm_recommendations(self, site_data: Dict[str, PageAnalysis], technical_issues: Dict) -> str:
+        """Use LLM to generate comprehensive SEO recommendations"""
+        
+        # Prepare summary data for LLM
+        summary = {
+            'total_pages_analyzed': len(site_data),
+            'technical_issues_summary': {
+                'missing_titles': len(technical_issues['missing_titles']),
+                'duplicate_titles': len(technical_issues['duplicate_titles']),
+                'missing_meta_descriptions': len(technical_issues['missing_meta_descriptions']),
+                'missing_h1': len(technical_issues['missing_h1']),
+                'images_without_alt_text': len(technical_issues['images_without_alt']),
+                'slow_loading_pages': len(technical_issues['slow_pages']),
+                'thin_content_pages': len(technical_issues['thin_content'])
+            },
+            'sample_pages': []
+        }
+        
+        # Include sample page data
+        for i, (url, page) in enumerate(list(site_data.items())[:5]):
+            summary['sample_pages'].append({
+                'url': url,
+                'title': page.title,
+                'meta_description': page.meta_description,
+                'h1_tags': page.h1_tags,
+                'word_count': page.word_count,
+                'load_time': page.load_time
+            })
+        
+        prompt = f"""
+        As an SEO expert, analyze this website data and provide comprehensive SEO recommendations:
+        
+        Site Analysis Summary:
+        {json.dumps(summary, indent=2)}
+        
+        Technical Issues Found:
+        {json.dumps(technical_issues, indent=2)}
+        
+        Please provide:
+        1. A priority-ordered list of the most critical SEO issues to fix
+        2. Specific, actionable recommendations for each issue
+        3. Content optimization suggestions based on the pages analyzed
+        4. Site architecture recommendations
+        5. Performance optimization tips
+        6. A 90-day SEO action plan
+        
+        Format your response with clear sections and bullet points for easy implementation.
+        """
+        
+        response = self.llm.invoke(prompt)
+        return response.content
+
+# LangChain tool wrapper
+@tool
+def analyze_website_seo(url: str, max_pages: int = 50) -> str:
+    """Crawl a website and provide comprehensive SEO analysis and recommendations.
+    
+    Args:
+        url: The website URL to analyze
+        max_pages: Maximum number of pages to crawl (default: 50)
+    
+    Returns:
+        Detailed SEO analysis and recommendations
+    """
+    
+    # Initialize crawler and analyzer
+    crawler = SEOCrawler(max_pages=max_pages)
+    analyzer = SEOAnalyzer(anthropic_api_key="your-api-key")
+    
+    # Crawl the site
+    print(f"Starting crawl of {url}...")
+    site_data = asyncio.run(crawler.crawl_site(url))
+    
+    # Analyze technical SEO
+    technical_issues = analyzer.analyze_technical_seo(site_data)
+    
+    # Generate LLM recommendations
+    recommendations = analyzer.generate_llm_recommendations(site_data, technical_issues)
+    
+    # Create comprehensive report
+    report = f"""
+    SEO ANALYSIS REPORT FOR: {url}
+    =====================================
+    
+    Pages Analyzed: {len(site_data)}
+    
+    TECHNICAL ISSUES SUMMARY:
+    - Missing Titles: {len(technical_issues['missing_titles'])}
+    - Duplicate Titles: {len(technical_issues['duplicate_titles'])}
+    - Missing Meta Descriptions: {len(technical_issues['missing_meta_descriptions'])}
+    - Missing H1 Tags: {len(technical_issues['missing_h1'])}
+    - Images Without Alt Text: {len(technical_issues['images_without_alt'])}
+    - Slow Loading Pages: {len(technical_issues['slow_pages'])}
+    - Thin Content Pages: {len(technical_issues['thin_content'])}
+    
+    DETAILED RECOMMENDATIONS:
+    {recommendations}
+    """
+    
+    return report
+    
+# langgraph_seo_agent.py
+from langgraph.graph import StateGraph, END
+from langchain.agents import AgentExecutor
+from typing import TypedDict, Annotated, Sequence
+import operator
+
+class SEOAgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], operator.add]
+    current_analysis: str
+    recommendations: List[str]
+
+def create_seo_agent():
+    # Define tools
+    tools = [
+        analyze_website_seo,
+        check_site_speed,
+        analyze_competitors,
+        keyword_research,
+        backlink_analyzer
+    ]
+    
+    # Create agent
+    agent = ChatAnthropic(
+        model="claude-3-opus-20240229",
+        temperature=0
+    ).bind_tools(tools)
+    
+    # Build graph
+    workflow = StateGraph(SEOAgentState)
+    
+    def run_analysis(state):
+        # Run SEO analysis
+        result = agent.invoke(state["messages"])
+        return {"current_analysis": result}
+    
+    def generate_report(state):
+        # Generate comprehensive report
+        report_prompt = f"""
+        Based on this SEO analysis:
+        {state["current_analysis"]}
+        
+        Generate a professional SEO report with:
+        1. Executive summary
+        2. Critical issues
+        3. Quick wins
+        4. Long-term strategy
+        5. KPIs to track
+        """
+        
+        report = agent.invoke(report_prompt)
+        return {"recommendations": report}
+    
+    workflow.add_node("analyze", run_analysis)
+    workflow.add_node("report", generate_report)
+    
+    workflow.add_edge("analyze", "report")
+    workflow.add_edge("report", END)
+    workflow.set_entry_point("analyze")
+    
+    return workflow.compile()
+    
+# api.py
+from fastapi import FastAPI, BackgroundTasks
+from pydantic import BaseModel, HttpUrl
+import uuid
+
+app = FastAPI()
+
+class SEOAnalysisRequest(BaseModel):
+    url: HttpUrl
+    max_pages: int = 50
+    include_competitors: bool = False
+    
+class SEOAnalysisResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+
+# Store results in memory (use Redis in production)
+analysis_results = {}
+
+async def run_seo_analysis(job_id: str, url: str, max_pages: int):
+    """Background task for SEO analysis"""
+    try:
+        analysis_results[job_id] = {"status": "running"}
+        
+        # Run the analysis
+        result = analyze_website_seo(url, max_pages)
+        
+        analysis_results[job_id] = {
+            "status": "completed",
+            "result": result,
+            "timestamp": datetime.now()
+        }
+    except Exception as e:
+        analysis_results[job_id] = {
+            "status": "failed",
+            "error": str(e)
+        }
+
+@app.post("/analyze", response_model=SEOAnalysisResponse)
+async def start_seo_analysis(
+    request: SEOAnalysisRequest,
+    background_tasks: BackgroundTasks
+):
+    """Start SEO analysis job"""
+    job_id = str(uuid.uuid4())
+    
+    background_tasks.add_task(
+        run_seo_analysis,
+        job_id,
+        str(request.url),
+        request.max_pages
+    )
+    
+    return SEOAnalysisResponse(
+        job_id=job_id,
+        status="started",
+        message=f"SEO analysis started for {request.url}"
+    )
+
+@app.get("/results/{job_id}")
+async def get_analysis_results(job_id: str):
+    """Get analysis results"""
+    if job_id not in analysis_results:
+        return {"error": "Job not found"}
+    
+    return analysis_results[job_id]
+    
+# advanced_seo_tools.py
+
+class AdvancedSEOAnalyzer:
+    def __init__(self):
+        self.llm = ChatAnthropic(model="claude-3-opus-20240229")
+    
+    async def analyze_serp_intent(self, keyword: str):
+        """Analyze search intent for keywords"""
+        # Use search API to get SERP results
+        serp_data = await self.get_serp_data(keyword)
+        
+        prompt = f"""
+        Analyze the search intent for "{keyword}" based on these SERP results:
+        {json.dumps(serp_data, indent=2)}
+        
+        Determine:
+        1. Primary search intent (informational, transactional, navigational, commercial)
+        2. Content types ranking well
+        3. Featured snippets opportunities
+        4. People Also Ask questions
+        5. Content gap opportunities
+        """
+        
+        return self.llm.invoke(prompt)
+    
+    async def content_optimization_suggestions(self, current_content: str, target_keyword: str):
+        """Get AI-powered content optimization suggestions"""
+        
+        prompt = f"""
+        Analyze this content for SEO optimization targeting "{target_keyword}":
+        
+        {current_content[:2000]}...
+        
+        Provide:
+        1. Keyword density analysis
+        2. Semantic keywords to include
+        3. Content structure improvements
+        4. Featured snippet optimization
+        5. Internal linking opportunities
+        6. Content length recommendations
+        """
+        
+        return self.llm.invoke(prompt)
+    
+    async def competitive_gap_analysis(self, our_site: str, competitors: List[str]):
+        """Analyze SEO gaps vs competitors"""
+        our_data = await self.crawl_site(our_site)
+        competitor_data = {}
+        
+        for comp in competitors:
+            competitor_data[comp] = await self.crawl_site(comp)
+        
+        prompt = f"""
+        Compare our site's SEO against competitors:
+        
+        Our Site: {our_site}
+        Data: {json.dumps(our_data, indent=2)}
+        
+        Competitors:
+        {json.dumps(competitor_data, indent=2)}
+        
+        Identify:
+        1. Content gaps we should fill
+        2. Technical SEO advantages they have
+        3. Link building opportunities
+        4. Site structure improvements
+        5. Priority keywords to target
+        """
+        
+        return self.llm.invoke(prompt)
+
+# Monitoring and reporting
+class SEOMonitor:
+    def __init__(self):
+        self.db = {}  # Use proper database
+    
+    async def track_rankings(self, domain: str, keywords: List[str]):
+        """Track keyword rankings over time"""
+        for keyword in keywords:
+            ranking = await self.check_ranking(domain, keyword)
+            self.db[f"{domain}:{keyword}"] = {
+                "position": ranking,
+                "timestamp": datetime.now(),
+                "serp_features": await self.check_serp_features(keyword)
+            }
+    
+    def generate_seo_dashboard(self, domain: str):
+        """Generate SEO performance dashboard data"""
+        return {
+            "rankings": self.get_ranking_trends(domain),
+            "traffic": self.get_traffic_estimates(domain),
+            "technical_health": self.get_technical_score(domain),
+            "content_performance": self.get_content_metrics(domain),
+            "backlink_profile": self.get_backlink_data(domain)
+        }
+        
+# main.py
+import asyncio
+
+async def main():
+    # Basic usage
+    result = analyze_website_seo("https://example.com", max_pages=25)
+    print(result)
+    
+    # Advanced usage with LangGraph
+    seo_agent = create_seo_agent()
+    
+    response = await seo_agent.ainvoke({
+        "messages": [HumanMessage(content="Analyze example.com and provide a complete SEO audit with competitor analysis against competitor1.com and competitor2.com")]
+    })
+    
+    print(response["recommendations"])
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    
+Key Features:
+
+Comprehensive Crawling: Extracts all important SEO elements
+Technical SEO Analysis: Identifies common issues automatically
+LLM-Powered Insights: Uses Claude for intelligent recommendations
+Async Performance: Fast crawling with rate limiting
+API Integration: Ready to deploy as a service
+Extensible Architecture: Easy to add new analysis features
+
+This tool provides professional-grade SEO analysis powered by Claude's understanding of SEO best practices and ability to generate contextual recommendations.

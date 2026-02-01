@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chart.js Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .chart-container { width: 500px; height: 400px; margin: 20px auto; border: 1px solid #ccc; padding: 10px; }
+        h2 { text-align: center; }
+    </style>
+</head>
+<body>
+    <h1>Chart.js Loading Test</h1>
+    <div id="status"></div>
+
+    <h2>Radar Chart Test</h2>
+    <div class="chart-container">
+        <canvas id="testRadar"></canvas>
+    </div>
+
+    <h2>Doughnut Chart Test</h2>
+    <div class="chart-container">
+        <canvas id="testDoughnut"></canvas>
+    </div>
+
+    <script>
+        // Check if Chart.js loaded
+        const status = document.getElementById('status');
+        if (typeof Chart === 'undefined') {
+            status.innerHTML = '<p style="color: red;">❌ Chart.js FAILED to load!</p>';
+            console.error('Chart.js is undefined');
+        } else {
+            status.innerHTML = '<p style="color: green;">✅ Chart.js loaded successfully! Version: ' + Chart.version + '</p>';
+            console.log('Chart.js loaded:', Chart);
+
+            // Initialize charts
+            initCharts();
+        }
+
+        function initCharts() {
+            // Radar Chart
+            const radarCtx = document.getElementById('testRadar');
+            if (radarCtx) {
+                console.log('Creating radar chart...');
+                try {
+                    new Chart(radarCtx, {
+                        type: 'radar',
+                        data: {
+                            labels: ['Content', 'Security', 'Mobile', 'Technical', 'Performance'],
+                            datasets: [{
+                                label: 'SEO Score',
+                                data: [61, 40, 80, 50, 100],
+                                backgroundColor: 'rgba(44, 82, 130, 0.2)',
+                                borderColor: 'rgba(44, 82, 130, 1)',
+                                borderWidth: 2
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            scales: {
+                                r: {
+                                    beginAtZero: true,
+                                    max: 100
+                                }
+                            }
+                        }
+                    });
+                    console.log('✅ Radar chart created');
+                } catch (e) {
+                    console.error('❌ Radar chart error:', e);
+                }
+            }
+
+            // Doughnut Chart
+            const doughnutCtx = document.getElementById('testDoughnut');
+            if (doughnutCtx) {
+                console.log('Creating doughnut chart...');
+                try {
+                    new Chart(doughnutCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: ['Critical', 'High', 'Medium'],
+                            datasets: [{
+                                data: [2, 69, 32],
+                                backgroundColor: [
+                                    'rgba(197, 48, 48, 0.8)',
+                                    'rgba(229, 62, 62, 0.8)',
+                                    'rgba(237, 137, 54, 0.8)'
+                                ]
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true
+                        }
+                    });
+                    console.log('✅ Doughnut chart created');
+                } catch (e) {
+                    console.error('❌ Doughnut chart error:', e);
+                }
+            }
+        }
+    </script>
+</body>
+</html>

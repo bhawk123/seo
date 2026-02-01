@@ -1,0 +1,117 @@
+{
+  "title": "Phase 1A-1: Spike - Validate Optional Dependency and Automated Playwright Setup",
+  "objective": "To validate that Playwright can be installed as an optional dependency via Poetry and that a post-install script can successfully automate the `playwright install` command, providing a seamless setup experience for developers.",
+  "phase0_poc": true,
+  "requirements": [
+    "The `pyproject.toml` file MUST be updated to include `playwright` and `beautifulsoup4` in an optional dependency group named `browser`.",
+    "A `postinstall` script hook MUST be added to `[tool.poetry.scripts]` in `pyproject.toml` that points to a function in `scripts.py`.",
+    "A new file, `scripts.py`, MUST be created at the project root to house the post-install logic.",
+    "A `postinstall` function in `scripts.py` MUST be implemented.",
+    "The `postinstall` function MUST first check if the `playwright` package is importable. If not, it SHOULD print a message indicating that the `browser` extra is not installed and exit gracefully.",
+    "If Playwright is installed, the function MUST execute the command `playwright install chromium` using Python's `subprocess` module.",
+    "The function MUST capture `stdout` and `stderr` from the subprocess to provide informative output to the user.",
+    "Error handling MUST be implemented to catch a non-zero exit code from the subprocess, printing a helpful message that instructs the user on how to run `poetry run playwright install chromium` manually."
+  ],
+  "acceptance_criteria": [
+    "Running `poetry install -E browser` successfully installs `playwright`, `beautifulsoup4`, and automatically triggers the post-install script.",
+    "The post-install script successfully downloads and installs the Chromium browser without manual intervention.",
+    "Running `poetry install` without the `-E browser` extra does NOT trigger the installation script.",
+    "If the browser download fails, a clear error message is printed to the console with manual installation instructions."
+  ],
+  "target_files": [
+    {
+      "file_path": "pyproject.toml",
+      "integration_points": [
+        "Add `[tool.poetry.group.browser]` optional dependency group.",
+        "Add `playwright` and `beautifulsoup4` to the `browser` group.",
+        "Add `postinstall = \"scripts:postinstall\"` to `[tool.poetry.scripts]`."
+      ]
+    },
+    {
+      "file_path": "scripts.py",
+      "integration_points": [
+        "Create the file.",
+        "Implement the `postinstall` function."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Successful installation with browser extra",
+      "when": [
+        "Developer runs `poetry install -E browser` in a clean environment"
+      ],
+      "then": [
+        "Poetry installs all dependencies including `playwright`.",
+        "The `postinstall` script is triggered automatically.",
+        "A message indicating browser installation is in progress is printed.",
+        "The Chromium browser is successfully downloaded and installed.",
+        "A success message is printed."
+      ]
+    },
+    {
+      "name": "Installation without browser extra",
+      "when": [
+        "Developer runs `poetry install` without the `-E browser` flag"
+      ],
+      "then": [
+        "`playwright` is not installed.",
+        "The `postinstall` script, if triggered by Poetry, exits gracefully after detecting Playwright is not available."
+      ]
+    },
+    {
+      "name": "Browser download failure",
+      "when": [
+        "Developer runs `poetry install -E browser`",
+        "The `playwright install chromium` command fails due to a network error or permissions issue"
+      ],
+      "then": [
+        "The `postinstall` script catches the error.",
+        "An error message is printed to the console.",
+        "The message MUST include the manual command: `poetry run playwright install chromium`."
+      ]
+    }
+  ],
+  "configuration": {},
+  "security": {
+    "requirements": [
+      "The script MUST NOT use `shell=True` in `subprocess.run` to prevent shell injection vulnerabilities.",
+      "The script relies on the integrity of the `playwright` package from PyPI and its official browser download servers. No third-party binaries are used."
+    ]
+  },
+  "performance": {
+    "slos": [
+      "The `poetry install -E browser` command duration will be increased by the time required to download and install the Chromium browser, which is dependent on network speed and outside of our control."
+    ]
+  },
+  "error_handling": [
+    {
+      "error": "Playwright package not found",
+      "message": "Browser extras not installed. Skipping browser setup. To install, run: poetry install -E browser"
+    },
+    {
+      "error": "Playwright command execution fails",
+      "message": "Failed to automatically install browser. Please run the following command manually: poetry run playwright install chromium"
+    }
+  ],
+  "observability": {
+    "logging": [
+      "All output from this script MUST be via `print()` statements to the console, as it runs outside the application's logging context.",
+      "Log a message at the start of the script: 'Checking for browser installation...'",
+      "Log a message on successful completion: 'Chromium browser installed successfully.'",
+      "Log a detailed error message on failure."
+    ],
+    "metrics": []
+  },
+  "migration_plan": {
+    "deployment_steps": [
+      "Merge the changes for `pyproject.toml` and `scripts.py`.",
+      "Developers must run `poetry lock --no-update` followed by `poetry install -E browser` to adopt the new dependency and trigger the setup."
+    ],
+    "rollback_steps": [
+      "Revert the commit containing the changes.",
+      "Developers must run `poetry install` to remove the `postinstall` hook and dependencies."
+    ]
+  },
+  "feature_flag": "N/A"
+}

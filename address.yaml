@@ -1,0 +1,12 @@
+accounts:
+  - address: 2753 Waverly Dr
+    unit: APT 1001
+    zip: "90039"
+    has_account: true
+
+serviceable:
+  - address: 3400 Lowry Rd
+    city: Los Angeles
+    zip: "90027"
+    has_account: false
+    in_service_area: true

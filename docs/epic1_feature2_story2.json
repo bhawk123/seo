@@ -1,0 +1,97 @@
+{
+  "title": "Phase 1B-2: Implement Core Page Crawling with Resource Isolation",
+  "objective": "Implement the `crawl` method to navigate to a URL within an isolated browser context, retrieve the final rendered HTML, and ensure all temporary resources are reliably closed.",
+  "phase0_poc": false,
+  "requirements": [
+    "The `async def crawl(self, url: str)` method MUST be fully implemented.",
+    "The method MUST create a new `BrowserContext` for each call using `self._browser.new_context()`.",
+    "The method MUST create a new `Page` within the isolated context.",
+    "The `page.goto()` call MUST use the `timeout` and `wait_until` parameters from the `self._config` instance.",
+    "The method MUST return the final, rendered HTML content of the page as a string, obtained via `page.content()`.",
+    "The `BrowserContext` and its associated `Page` MUST be closed reliably after each crawl using an `async with` block for the context to prevent resource leaks."
+  ],
+  "acceptance_criteria": [
+    "The `BrowserCrawler` can successfully crawl a simple, static HTML page and return its full HTML content.",
+    "The `BrowserCrawler` can successfully crawl a JavaScript-heavy Single Page Application (SPA) and return the fully rendered HTML.",
+    "No `BrowserContext` or `Page` resources are left open after a successful crawl."
+  ],
+  "target_files": [
+    {
+      "file_path": "src/seo/browser_crawler.py",
+      "integration_points": [
+        "Implement the `crawl` method in the `BrowserCrawler` class."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Crawl a simple static page",
+      "when": [
+        "`crawl` is called with a valid URL to a static HTML page"
+      ],
+      "then": [
+        "A new browser context and page are created",
+        "The page content is fetched successfully",
+        "The full HTML string is returned",
+        "The context and page are closed"
+      ]
+    },
+    {
+      "name": "Crawl a JavaScript-rendered page",
+      "when": [
+        "`crawl` is called with a URL to a SPA",
+        "The `wait_until` config is set to 'networkidle'"
+      ],
+      "then": [
+        "The crawler waits for JS execution to complete",
+        "The final, fully-rendered HTML is returned, including JS-generated content"
+      ]
+    }
+  ],
+  "configuration": {
+    "env_variables": [],
+    "yaml_config": "This story depends on a `BrowserConfig` object with `timeout` (e.g., 30000) and `wait_until` (e.g., 'domcontentloaded' or 'networkidle') properties."
+  },
+  "security": {
+    "requirements": [
+      "The `url` parameter MUST be validated to ensure it is a well-formed HTTP/HTTPS URL before being passed to `page.goto()`.",
+      "The browser context SHOULD be configured to disable automatic downloads."
+    ]
+  },
+  "performance": {
+    "slos": [
+      "P95 latency for `crawl` on a simple static site MUST be < 2 seconds (excluding network time to the target site)."
+    ]
+  },
+  "error_handling": [
+    {
+      "error": "Invalid URL format",
+      "message": "The provided URL is not a valid HTTP/HTTPS URL."
+    },
+    {
+      "error": "Navigation error (e.g., DNS resolution failure)",
+      "message": "Playwright navigation error for URL: [url]. Reason: [playwright_error_message]"
+    }
+  ],
+  "observability": {
+    "logging": [
+      "Log the start and end of each `crawl` call at INFO level, including the URL.",
+      "Log the time taken for each crawl at DEBUG level.",
+      "Log any Playwright errors during navigation at ERROR level."
+    ],
+    "metrics": [
+      "crawler_crawl_duration_seconds (Histogram): Time taken to crawl a page.",
+      "crawler_crawl_total{status=\"success\"} (Counter): Number of successful crawls.",
+      "crawler_crawl_total{status=\"failure\"} (Counter): Number of failed crawls."
+    ]
+  },
+  "migration_plan": {
+    "deployment_steps": [
+      "Deploy the updated `src/seo/browser_crawler.py` module."
+    ],
+    "rollback_steps": [
+      "Revert the `src/seo/browser_crawler.py` module to the previous version."
+    ]
+  },
+  "feature_flag": "enable_browser_crawler_core"
+}

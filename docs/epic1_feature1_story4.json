@@ -1,0 +1,54 @@
+{
+  "title": "Phase 1A-4: CLI Integration for JavaScript Rendering",
+  "objective": "To add a `--render-js` flag to the main `crawl.py` CLI to allow users to initiate a browser-based crawl.",
+  "phase0_poc": false,
+  "requirements": [
+    "The `crawl.py` script's command-line argument parser (e.g., `argparse` or `typer`) MUST be updated to include a new boolean flag, `--render-js`.",
+    "The flag SHOULD have a `help` text, e.g., 'Enable JavaScript rendering using a headless browser.'",
+    "The default value for `--render-js` MUST be `False` to maintain backward compatibility.",
+    "The value of this flag MUST be passed to the `SiteCrawler` factory to select the appropriate crawling engine."
+  ],
+  "acceptance_criteria": [
+    "Running `python crawl.py --help` displays the new `--render-js` option.",
+    "Executing `python crawl.py <url>` (without the flag) uses the `RequestsCrawler` as before.",
+    "Executing `python crawl.py <url> --render-js` passes `render_js=True` to the `SiteCrawler` factory."
+  ],
+  "target_files": [
+    {
+      "file_path": "crawl.py",
+      "integration_points": [
+        "Add the `--render-js` flag to the argument parser.",
+        "Pass the parsed flag's value to the site crawler."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Trigger a standard request-based crawl",
+      "when": [
+        "A user runs `python crawl.py example.com`"
+      ],
+      "then": [
+        "The `render_js` flag is `False`.",
+        "The `SiteCrawler` factory selects the `RequestsCrawler`."
+      ]
+    },
+    {
+      "name": "Trigger a browser-based crawl",
+      "when": [
+        "A user runs `python crawl.py example.com --render-js`"
+      ],
+      "then": [
+        "The `render_js` flag is `True`.",
+        "The `SiteCrawler` factory selects the browser-based crawling logic."
+      ]
+    }
+  ],
+  "configuration": {},
+  "security": {},
+  "performance": {},
+  "error_handling": [],
+  "observability": {},
+  "migration_plan": {},
+  "feature_flag": "enable_js_rendering_cli_flag"
+}

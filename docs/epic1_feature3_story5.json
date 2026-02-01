@@ -1,0 +1,53 @@
+{
+  "title": "Phase 1C-5: Rate Limiting & Progress Reporting",
+  "objective": "To introduce rate limiting to avoid overloading the target server and to provide progress feedback to the user during a long crawl.",
+  "phase0_poc": false,
+  "requirements": [
+    "The `SiteCrawler`'s browser-based logic MUST accept a `rate_limit` parameter (in requests per second).",
+    "Between each page crawl, a delay MUST be introduced to respect the specified rate limit.",
+    "The `SiteCrawler` MUST also accept an optional `on_progress` callback function.",
+    "After each page is crawled, the `on_progress` callback MUST be invoked with progress information (e.g., current URL, number of pages crawled, queue size)."
+  ],
+  "acceptance_criteria": [
+    "Running a crawl with a `rate_limit` of 2 results in an average of 0.5 seconds between crawl requests.",
+    "Providing an `on_progress` callback results in it being called after each page crawl with the correct progress data."
+  ],
+  "target_files": [
+    {
+      "file_path": "src/seo/site_crawler.py",
+      "integration_points": [
+        "Add `rate_limit` and `on_progress` parameters to the main crawl method.",
+        "Implement delay logic in the crawl loop.",
+        "Invoke the callback in the crawl loop."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Crawl with rate limiting",
+      "when": [
+        "A crawl is started with `rate_limit=1`"
+      ],
+      "then": [
+        "The crawler pauses for approximately 1 second between each page request."
+      ]
+    },
+    {
+      "name": "Crawl with progress callback",
+      "when": [
+        "A crawl is started with a callback function passed to `on_progress`"
+      ],
+      "then": [
+        "The callback function is executed after each page is crawled.",
+        "The output of the callback (e.g., a log message) is visible."
+      ]
+    }
+  ],
+  "configuration": {},
+  "security": {},
+  "performance": {},
+  "error_handling": [],
+  "observability": {},
+  "migration_plan": {},
+  "feature_flag": "enable_js_rendering"
+}

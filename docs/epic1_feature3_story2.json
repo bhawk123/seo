@@ -1,0 +1,90 @@
+{
+  "title": "Phase 1C-2: Refactor SiteCrawler into a Factory for Engine Selection",
+  "objective": "Modify the main `SiteCrawler` to act as a factory that selects a crawling engine based on a configuration flag, while initially only supporting the existing `RequestsCrawler` to ensure a safe, non-disruptive refactoring.",
+  "phase0_poc": false,
+  "requirements": [
+    "The main `SiteCrawler` class or its entry point function MUST be refactored to implement the factory pattern.",
+    "The factory MUST accept a `render_js: bool` parameter to determine which engine to use.",
+    "If `render_js` is `False`, the factory MUST instantiate and use the existing `RequestsCrawler`.",
+    "If `render_js` is `True`, the factory MUST raise a `NotImplementedError` as a placeholder for future integration.",
+    "The public interface for initiating a crawl MUST remain backward compatible for callers not specifying `render_js` (defaulting to `False`)."
+  ],
+  "acceptance_criteria": [
+    "Calling the main crawl function with `render_js=False` executes the crawl using `RequestsCrawler` and produces a valid report.",
+    "Calling the main crawl function without specifying `render_js` defaults to `False` and uses `RequestsCrawler`.",
+    "Calling the main crawl function with `render_js=True` raises a `NotImplementedError`.",
+    "All existing unit and integration tests for the `RequestsCrawler` path MUST continue to pass after the refactoring."
+  ],
+  "target_files": [
+    {
+      "file_path": "src/seo/site_crawler.py",
+      "integration_points": [
+        "Refactor the main `crawl` function or class constructor to include the `render_js: bool` parameter and conditional logic.",
+        "Ensure the `RequestsCrawler` is instantiated and returned/used when `render_js` is false."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Select RequestsCrawler for a non-JS crawl",
+      "when": [
+        "The main crawl function is called",
+        "The `render_js` flag is explicitly set to `false`"
+      ],
+      "then": [
+        "The `SiteCrawler` factory instantiates the `RequestsCrawler`",
+        "The crawl proceeds using only HTTP requests",
+        "The final report is generated successfully"
+      ]
+    },
+    {
+      "name": "Reject JS crawl request before full integration",
+      "when": [
+        "The main crawl function is called",
+        "The `render_js` flag is set to `true`"
+      ],
+      "then": [
+        "A `NotImplementedError` is raised",
+        "No crawler is instantiated"
+      ]
+    }
+  ],
+  "configuration": {
+    "env_variables": [],
+    "yaml_config": "crawler:\n  default_render_js: false"
+  },
+  "security": {
+    "requirements": [
+      "The `render_js` flag, if passed via an API, MUST be strictly validated as a boolean to prevent injection or type confusion vulnerabilities."
+    ]
+  },
+  "performance": {
+    "slos": [
+      "The additional latency introduced by the factory selection logic MUST be less than 5ms."
+    ]
+  },
+  "error_handling": [
+    {
+      "error": "JS rendering not yet implemented",
+      "message": "Crawling with JavaScript rendering is not yet implemented."
+    }
+  ],
+  "observability": {
+    "logging": [
+      "Log the selected crawler engine (`engine: requests`) at INFO level for each crawl job."
+    ],
+    "metrics": [
+      "crawler_engine_selected_total{engine=\"requests\"} (Counter)"
+    ]
+  },
+  "migration_plan": {
+    "deployment_steps": [
+      "Deploy the updated application code.",
+      "No change in behavior is expected for existing clients as the default remains the same."
+    ],
+    "rollback_steps": [
+      "Revert the application to the previous container image or commit."
+    ]
+  },
+  "feature_flag": "enable_crawler_factory_pattern"
+}

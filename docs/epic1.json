@@ -1,0 +1,24 @@
+{
+  "epic_id": 1,
+  "title": "Epic 1: Executive Summary",
+  "objective": "High-level epic objective encompassing 3 features",
+  "features": [
+    {
+      "feature_id": 1,
+      "title": "Phase 1A: Project Foundation & Configuration",
+      "objective": "Establish the project's technical foundation for browser-based crawling by adding Playwright as an optional dependency, automating its setup, and implementing a validated Pydantic configuration model for all browser settings."
+    },
+    {
+      "feature_id": 2,
+      "title": "Phase 1B: Asynchronous Page Crawler Core",
+      "objective": "Develop the core `BrowserCrawler` class, designed for efficient, asynchronous operation. This class will work as an async context manager, launching and closing its own browser instance, and will be responsible for crawling a single JavaScript-rendered page, ensuring performance and isolation."
+    },
+    {
+      "feature_id": 3,
+      "title": "Phase 1C: Site Crawler Factory and Integration",
+      "objective": "Integrate the new `BrowserCrawler` into the main application by updating the `SiteCrawler` to act as a factory that selects the appropriate crawling engine and implements browser-based crawling logic."
+    }
+  ],
+  "total_features": 3,
+  "description": "This epic contains 3 features that work together to deliver the complete functionality."
+}

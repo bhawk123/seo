@@ -1,0 +1,30 @@
+poetry run python crawl.py -h
+usage: crawl.py [-h] [--no-lighthouse] [--lighthouse-sample LIGHTHOUSE_SAMPLE] [--enable-psi] [--psi-strategy {mobile,desktop}] [--stealth]
+                [--render-js] [--browser-type {chromium,firefox,webkit}] [--sitemap SITEMAP] [--sitemap-file SITEMAP_FILE]
+                url [max_pages] [rate_limit]
+
+Crawl and analyze websites for SEO
+
+positional arguments:
+  url                   URL to crawl
+  max_pages             Maximum number of pages to crawl (default: 50)
+  rate_limit            Rate limit in seconds between requests (default: 0.5)
+
+options:
+  -h, --help            show this help message and exit
+  --no-lighthouse       Disable local Lighthouse performance audits (enabled by default)
+  --lighthouse-sample LIGHTHOUSE_SAMPLE
+                        Fraction of pages to audit with Lighthouse (0.0-1.0, default: 0.1 = 10%)
+  --enable-psi          Enable Google PageSpeed Insights API for CrUX real user data (requires GOOGLE_PSI_API_KEY)
+  --psi-strategy {mobile,desktop}
+                        PageSpeed Insights strategy: mobile or desktop (default: mobile)
+  --stealth             Use browser-like headers to bypass bot detection (use for sites that block crawlers)
+  --render-js           Enable JavaScript rendering using a headless browser (requires: poetry install -E browser)
+  --browser-type {chromium,firefox,webkit}
+                        Browser engine to use with --render-js (default: chromium)
+  --sitemap SITEMAP     URL or local file path to sitemap.xml to seed the crawl queue (useful for bot-protected sites)
+  --sitemap-file SITEMAP_FILE
+                        Local file path to sitemap.xml (alternative to --sitemap for manually downloaded sitemaps)
+                        
+                        
+poetry run python crawl.py https://www.specialized.com/us/en 250 2 --stealth --render-js --browser-type chromium --sitemap https://www.specialized.com/us/en/sitemap.xml 

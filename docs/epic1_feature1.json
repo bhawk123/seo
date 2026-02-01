@@ -1,0 +1,51 @@
+{
+  "epic_id": 1,
+  "feature_id": 1,
+  "title": "Phase 1A: Project Foundation & Configuration",
+  "objective": "Establish the project's technical foundation for browser-based crawling by adding Playwright as an optional dependency, automating its setup, and implementing a validated Pydantic configuration model for all browser settings.",
+  "user_stories": [
+    {
+      "story_id": 1,
+      "title": "Phase 1A-1: Spike - Validate Optional Dependency and Automated Playwright Setup",
+      "objective": "To validate that Playwright can be installed as an optional dependency via Poetry and that a post-install script can successfully automate the `playwright install` command, providing a seamless setup experience for developers."
+    },
+    {
+      "story_id": 2,
+      "title": "Phase 1A-2: Implement a Validated Browser Configuration Model",
+      "objective": "To create a robust, type-safe Pydantic model for all browser-related settings, ensuring developers provide valid configurations and benefit from auto-completion and static analysis."
+    },
+    {
+      "story_id": 3,
+      "title": "Phase 1A-3: Create Pre-configured Browser Settings for Common Use Cases",
+      "objective": "To provide developers with ready-to-use, opinionated browser configurations (`FAST_CONFIG`, `FULL_CONFIG`, `STEALTH_CONFIG`) to simplify common crawling tasks and reduce boilerplate code."
+    },
+    {
+      "story_id": 4,
+      "title": "Phase 1A-4: CLI Integration for JavaScript Rendering",
+      "objective": "To add a `--render-js` flag to the main `crawl.py` CLI to allow users to initiate a browser-based crawl."
+    }
+  ],
+  "total_stories": 4,
+  "requirements": [
+    "The `pyproject.toml` file MUST be updated to include `playwright` and `beautifulsoup4` in an optional dependency group named `browser`.",
+    "A `postinstall` script hook MUST be added to `[tool.poetry.scripts]` in `pyproject.toml`.",
+    "A new file, `scripts.py`, MUST be created to house the post-install logic.",
+    "The `postinstall` function in `scripts.py` MUST execute `playwright install chromium` to automate browser setup.",
+    "The `postinstall` function MUST first check if Playwright is installed and SHOULD print a helpful message if it is not.",
+    "Error handling MUST be implemented in the `postinstall` function to catch failures during the browser download and instruct the user on manual installation.",
+    "A new module, `src/seo/browser_config.py`, MUST be created for configuration management.",
+    "A Pydantic model named `BrowserConfig` MUST be defined in the new module.",
+    "The `BrowserConfig` model MUST include fields for `headless`, `stealth_mode`, `browser_type`, `timeout`, `wait_until`, `mobile`, `capture_screenshots`, `capture_network`, and `block_resources` with appropriate types and default values.",
+    "The `browser_type` field MUST be a `Literal` type restricted to `\"chromium\"`, `\"firefox\"`, and `\"webkit\"`.",
+    "The `block_resources` field MUST use `default_factory=list` to prevent mutable default issues.",
+    "Three pre-configured instances (`FAST_CONFIG`, `FULL_CONFIG`, `STEALTH_CONFIG`) MUST be defined in `src/seo/browser_config.py` as specified in the design document."
+  ],
+  "acceptance_criteria": [
+    "Running `poetry install -E browser` successfully installs Playwright and triggers the post-install hook to download Chromium.",
+    "Running `poetry install` without the extra does not attempt to download Chromium.",
+    "The `BrowserConfig` model can be instantiated with default values without error.",
+    "Instantiating `BrowserConfig` with an invalid value (e.g., `browser_type=\"edge\"`) MUST raise a `ValidationError`.",
+    "The pre-configured instances like `FAST_CONFIG` can be imported and used directly."
+  ],
+  "description": "This feature contains 3 user stories that deliver user-facing capabilities."
+}

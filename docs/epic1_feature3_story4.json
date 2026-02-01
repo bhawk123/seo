@@ -1,0 +1,46 @@
+{
+  "title": "Phase 1C-4: Link Discovery & Queue Management",
+  "objective": "To implement link discovery within the browser-based `SiteCrawler` to find all internal links on a page and manage a queue of URLs to visit.",
+  "phase0_poc": false,
+  "requirements": [
+    "The `SiteCrawler`'s browser-based logic MUST include a method, e.g., `_find_internal_links(html, base_url)`.",
+    "This method MUST parse the HTML content from a crawled page using `BeautifulSoup`.",
+    "It MUST identify all `<a>` tags with an `href` attribute.",
+    "It MUST resolve relative URLs to absolute URLs using the page's `base_url`.",
+    "It MUST filter out external links, keeping only those that belong to the same domain as the crawl's starting URL.",
+    "The `SiteCrawler` MUST maintain a queue of URLs to be crawled and a set of already visited URLs to avoid re-crawling and infinite loops."
+  ],
+  "acceptance_criteria": [
+    "Given a sample HTML with a mix of internal, external, and relative links, `_find_internal_links` correctly identifies and returns a list of only the absolute internal URLs.",
+    "The `SiteCrawler`, when run on a small multi-page site, successfully discovers and crawls all internal pages without crawling any page more than once."
+  ],
+  "target_files": [
+    {
+      "file_path": "src/seo/site_crawler.py",
+      "integration_points": [
+        "Implement the `_find_internal_links` method.",
+        "Add queue and visited set management to the main browser crawl loop."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Discover links on a page",
+      "when": [
+        "The `SiteCrawler` crawls a page containing links to `/about`, `http://external.com`, and `contact.html`."
+      ],
+      "then": [
+        "The `_find_internal_links` method identifies `/about` and `contact.html`.",
+        "It correctly resolves them to absolute URLs (e.g., `http://example.com/about`).",
+        "It adds the new, unvisited URLs to the crawl queue."
+      ]
+    }
+  ],
+  "configuration": {},
+  "security": {},
+  "performance": {},
+  "error_handling": [],
+  "observability": {},
+  "migration_plan": {},
+  "feature_flag": "enable_js_rendering"
+}

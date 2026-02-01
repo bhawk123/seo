@@ -1,0 +1,95 @@
+{
+  "title": "Phase 1C-3: Implement Browser-Based Crawling in SiteCrawler",
+  "objective": "Implement the browser-based site crawling logic within the `SiteCrawler` factory, enabling end-to-end, browser-based site crawling when the `render_js` flag is true.",
+  "phase0_poc": false,
+  "requirements": [
+    "The `SiteCrawler` factory's `render_js=True` path MUST be updated to implement browser-based crawling logic.",
+    "This logic MUST use the `BrowserCrawler` context manager to crawl individual pages.",
+    "The site crawler MUST manage a queue of URLs to visit.",
+    "The final data structure returned MUST be identical in schema to the one returned by `RequestsCrawler` to ensure seamless integration with downstream analysis and reporting modules."
+  ],
+  "acceptance_criteria": [
+    "Calling the main crawl function with `render_js=True` executes the entire site crawl using the browser-based logic.",
+    "The final analysis report can be generated successfully from a `render_js=True` crawl, with no schema-related errors."
+  ],
+  "target_files": [
+    {
+      "file_path": "src/seo/site_crawler.py",
+      "integration_points": [
+        "Replace the `NotImplementedError` in the `render_js=True` conditional with the browser-based site crawling logic."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Execute a full site crawl with JavaScript rendering",
+      "when": [
+        "The main crawl function is called for a multi-page site",
+        "The `render_js` flag is set to `true`"
+      ],
+      "then": [
+        "The `SiteCrawler` factory executes the browser-based crawl logic.",
+        "All reachable pages are crawled using the browser.",
+        "A valid report is generated from the returned data."
+      ]
+    },
+    {
+      "name": "Ensure data structure compatibility with analysis modules",
+      "when": [
+        "A crawl is completed using `render_js=True`",
+        "The resulting data is passed to the analysis module"
+      ],
+      "then": [
+        "The analysis module processes the data without errors",
+        "A valid analysis report is generated."
+      ]
+    }
+  ],
+  "configuration": {
+    "env_variables": [
+      "PLAYWRIGHT_BROWSER_TYPE=chromium"
+    ],
+    "yaml_config": "crawler:\n  browser_options:\n    headless: true\n    timeout: 30000"
+  },
+  "security": {
+    "requirements": [
+      "Browser contexts MUST be isolated between different concurrent crawl jobs to prevent data leakage.",
+      "All browser launch options read from configuration files MUST be sanitized to prevent argument injection."
+    ]
+  },
+  "performance": {
+    "slos": []
+  },
+  "error_handling": [
+    {
+      "error": "Browser process crashed mid-crawl",
+      "message": "The browser instance terminated unexpectedly during the crawl."
+    },
+    {
+      "error": "Incompatible data structure from browser crawl",
+      "message": "Internal server error: Crawler returned incompatible data."
+    }
+  ],
+  "observability": {
+    "logging": [
+      "Log the selected crawler engine (`engine: browser`) at INFO level.",
+      "Log the total number of pages crawled within a single browser session upon completion."
+    ],
+    "metrics": [
+      "crawler_engine_selected_total{engine=\"browser\"} (Counter)",
+      "crawler_browser_pages_per_session (Histogram)"
+    ]
+  },
+  "migration_plan": {
+    "deployment_steps": [
+      "Deploy the new code with the feature flag `enable_js_rendering` disabled.",
+      "Enable the feature flag for a small percentage of traffic or for internal testing.",
+      "Monitor logs and metrics for errors related to browser crawling.",
+      "Gradually roll out the feature to all users."
+    ],
+    "rollback_steps": [
+      "Disable the feature flag `enable_js_rendering` to immediately revert to the `NotImplementedError` behavior."
+    ]
+  },
+  "feature_flag": "enable_js_rendering"
+}

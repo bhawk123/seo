@@ -1,0 +1,56 @@
+{
+  "epic_id": 1,
+  "feature_id": 2,
+  "title": "Phase 1B: Asynchronous Page Crawler Core",
+  "objective": "Develop the core `BrowserCrawler` class, designed for efficient, asynchronous operation. This class will work as an async context manager, launching and closing its own browser instance, and will be responsible for crawling a single JavaScript-rendered page, ensuring performance and isolation.",
+  "user_stories": [
+    {
+      "story_id": 1,
+      "title": "Phase 1B-1: Spike - Implement BrowserCrawler Class Structure and Initialization",
+      "objective": "Create the foundational `BrowserCrawler` class that works as an async context manager, launching and closing its own browser instance."
+    },
+    {
+      "story_id": 2,
+      "title": "Phase 1B-2: Implement Core Page Crawling with Resource Isolation",
+      "objective": "Implement the `crawl` method to navigate to a URL within an isolated browser context, retrieve the final rendered HTML, and ensure all temporary resources are reliably closed."
+    },
+    {
+      "story_id": 3,
+      "title": "Phase 1B-3: Verify Session Isolation Between Crawls",
+      "objective": "Ensure that each call to `crawl` operates in a completely isolated environment, preventing cross-contamination of sessions, cookies, or local storage between different crawl operations."
+    },
+    {
+      "story_id": 4,
+      "title": "Phase 1B-4: Implement and Verify Timeout Error Handling",
+      "objective": "Ensure the crawler correctly handles pages that take too long to load by respecting the configured timeout, raising a specific `TimeoutError`, and still cleaning up all browser resources properly."
+    },
+    {
+      "story_id": 5,
+      "title": "Phase 1B-5: Stealth Mode Implementation",
+      "objective": "To implement stealth measures within the `BrowserCrawler` to help evade common bot-detection mechanisms when `stealth_mode` is enabled in the `BrowserConfig`."
+    }
+  ],
+  "total_stories": 5,
+  "requirements": [
+    "A new module, `src/seo/browser_crawler.py`, MUST be created.",
+    "An `async` class named `BrowserCrawler` MUST be defined within this module.",
+    "The `BrowserCrawler` class MUST be an async context manager.",
+    "The `BrowserCrawler`'s `__init__` method MUST accept a `BrowserConfig` object.",
+    "The class MUST be responsible for launching and closing the `Browser` instance.",
+    "An `async def crawl(self, url: str)` method MUST be implemented.",
+    "The `crawl` method MUST create a new `BrowserContext` for each call to ensure session isolation.",
+    "The `crawl` method MUST create a new `Page` within the isolated context.",
+    "The `page.goto()` call MUST use the `timeout` and `wait_until` parameters from the `BrowserConfig` instance.",
+    "The method MUST return the final, rendered HTML content of the page as a string.",
+    "The `Page` and `BrowserContext` MUST be closed reliably after each crawl, using an `async with` context manager to prevent resource leaks, even if errors occur."
+  ],
+  "acceptance_criteria": [
+    "The `BrowserCrawler` can be used as an async context manager.",
+    "The `BrowserCrawler` can successfully crawl a simple, static HTML page.",
+    "The `BrowserCrawler` can successfully crawl a JavaScript-heavy Single Page Application (SPA) and return the fully rendered HTML.",
+    "Attempting to crawl a URL that exceeds the configured timeout MUST raise a Playwright `TimeoutError`.",
+    "Crawling two different pages in sequence does not share cookies or local storage between them.",
+    "No `BrowserContext` or `Page` resources are left open after a crawl completes or fails."
+  ],
+  "description": "This feature contains 4 user stories that deliver user-facing capabilities."
+}

@@ -1,0 +1,87 @@
+{
+  "title": "Phase 1B-4: Implement and Verify Timeout Error Handling",
+  "objective": "Ensure the crawler correctly handles pages that take too long to load by respecting the configured timeout, raising a specific `TimeoutError`, and still cleaning up all browser resources properly.",
+  "phase0_poc": false,
+  "requirements": [
+    "The `page.goto()` call within `crawl` MUST use the `timeout` value from the `BrowserConfig` object.",
+    "If a `page.goto()` call exceeds this timeout, the method MUST allow the `playwright.async_api.TimeoutError` to be raised and propagated to the caller.",
+    "The `async with` block responsible for the `BrowserContext` MUST ensure its cleanup logic executes successfully even when a `TimeoutError` occurs within its scope."
+  ],
+  "acceptance_criteria": [
+    "Attempting to crawl a URL that exceeds the configured timeout MUST raise a Playwright `TimeoutError`.",
+    "No `BrowserContext` or `Page` resources are left open after a crawl fails with a `TimeoutError`."
+  ],
+  "target_files": [
+    {
+      "file_path": "src/seo/browser_crawler.py",
+      "integration_points": [
+        "Ensure the `try...except` or `async with` block correctly wraps the `page.goto()` call to guarantee resource cleanup on error."
+      ]
+    },
+    {
+      "file_path": "tests/test_browser_crawler.py",
+      "integration_points": [
+        "Add a new test `test_crawl_timeout` that uses a mock server with a delay to verify `TimeoutError` is raised and propagated correctly."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Page load exceeds timeout",
+      "when": [
+        "`BrowserConfig` has a timeout of 1000ms",
+        "`crawl` is called with a URL that takes 2000ms to respond"
+      ],
+      "then": [
+        "A Playwright `TimeoutError` is raised",
+        "The browser context and page used for the attempt are closed"
+      ]
+    },
+    {
+      "name": "Resource cleanup on timeout",
+      "when": [
+        "A crawl fails with a `TimeoutError`"
+      ],
+      "then": [
+        "A check of the browser instance shows no orphaned contexts or pages"
+      ]
+    }
+  ],
+  "configuration": {
+    "env_variables": [],
+    "yaml_config": "Relies on the `timeout` property of the `BrowserConfig` object."
+  },
+  "security": {
+    "requirements": [
+      "Proper timeout handling is a security measure against resource exhaustion and Denial of Service (DoS) attacks, both accidental (a slow site) and malicious. It prevents crawler workers from being tied up indefinitely."
+    ]
+  },
+  "performance": {
+    "slos": [
+      "The time until a `TimeoutError` is raised MUST be within `config.timeout` +/- 10%."
+    ]
+  },
+  "error_handling": [
+    {
+      "error": "playwright.TimeoutError",
+      "message": "The `crawl` method must propagate the original Playwright TimeoutError, allowing the caller to handle it."
+    }
+  ],
+  "observability": {
+    "logging": [
+      "Log timeout errors at the WARN level, including the URL and the configured timeout value."
+    ],
+    "metrics": [
+      "Increment `crawler_crawl_total{status=\"failure\", reason=\"timeout\"}` counter."
+    ]
+  },
+  "migration_plan": {
+    "deployment_steps": [
+      "Deploy updated code and new integration tests."
+    ],
+    "rollback_steps": [
+      "Revert to the previous version."
+    ]
+  },
+  "feature_flag": "enable_browser_crawler_core"
+}

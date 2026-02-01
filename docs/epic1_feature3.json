@@ -1,0 +1,47 @@
+{
+  "epic_id": 1,
+  "feature_id": 3,
+  "title": "Phase 1C: Site Crawler Factory and Integration",
+  "objective": "Integrate the new `BrowserCrawler` into the main application by updating the `SiteCrawler` to act as a factory that selects the appropriate crawling engine and implements browser-based crawling logic.",
+  "user_stories": [
+    {
+      "story_id": 1,
+      "title": "Phase 1C-1: Spike - BrowserCrawler Integration PoC",
+      "objective": "To validate that the `BrowserCrawler` context manager can be successfully invoked from a site-level crawling orchestrator to crawl a single page, proving the integration pattern before building out the full site-level logic."
+    },
+    {
+      "story_id": 2,
+      "title": "Phase 1C-2: Refactor SiteCrawler into a Factory for Engine Selection",
+      "objective": "Modify the main `SiteCrawler` to act as a factory that selects a crawling engine based on a configuration flag, while initially only supporting the existing `RequestsCrawler` to ensure a safe, non-disruptive refactoring."
+    },
+    {
+      "story_id": 3,
+      "title": "Phase 1C-3: Implement Browser-Based Crawling in SiteCrawler",
+      "objective": "Implement the browser-based site crawling logic within the `SiteCrawler` factory, enabling end-to-end, browser-based site crawling when the `render_js` flag is true."
+    },
+    {
+      "story_id": 4,
+      "title": "Phase 1C-4: Link Discovery & Queue Management",
+      "objective": "To implement link discovery within the browser-based `SiteCrawler` to find all internal links on a page and manage a queue of URLs to visit."
+    },
+    {
+      "story_id": 5,
+      "title": "Phase 1C-5: Rate Limiting & Progress Reporting",
+      "objective": "To introduce rate limiting to avoid overloading the target server and to provide progress feedback to the user during a long crawl."
+    }
+  ],
+  "total_stories": 5,
+  "requirements": [
+    "The main `SiteCrawler` class (or equivalent factory) MUST be modified to select a crawling engine based on a `render_js: bool` configuration flag.",
+    "If `render_js` is `False`, the factory MUST instantiate and use the existing `RequestsCrawler`.",
+    "If `render_js` is `True`, the factory MUST use the `BrowserCrawler` to crawl pages.",
+    "The `SiteCrawler`'s browser-based logic MUST use the `BrowserCrawler` as an async context manager for each page.",
+    "The data structure returned by the browser-based crawl MUST be compatible with the existing analysis and reporting modules, ensuring a seamless integration."
+  ],
+  "acceptance_criteria": [
+    "Calling the main crawl function with `render_js=False` executes the crawl using HTTP requests only.",
+    "Calling the main crawl function with `render_js=True` executes the crawl using a real browser.",
+    "The final analysis report can be generated successfully regardless of which crawler was used."
+  ],
+  "description": "This feature contains 3 user stories that deliver user-facing capabilities."
+}

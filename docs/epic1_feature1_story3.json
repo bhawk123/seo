@@ -1,0 +1,84 @@
+{
+  "title": "Phase 1A-3: Create Pre-configured Browser Settings for Common Use Cases",
+  "objective": "To provide developers with ready-to-use, opinionated browser configurations (`FAST_CONFIG`, `FULL_CONFIG`, `STEALTH_CONFIG`) to simplify common crawling tasks and reduce boilerplate code.",
+  "phase0_poc": false,
+  "requirements": [
+    "In `src/seo/browser_config.py`, three module-level constants MUST be defined as instances of `BrowserConfig`.",
+    "A `FAST_CONFIG` instance MUST be defined with `headless=True`, `capture_screenshots=False`, `capture_network=False`, and `block_resources` set to a list of common resource-heavy types (e.g., `[\"image\", \"stylesheet\", \"font\", \"media\"]`).",
+    "A `FULL_CONFIG` instance MUST be defined with `headless=False`, `capture_screenshots=True`, and `capture_network=True` to facilitate debugging and comprehensive data capture.",
+    "A `STEALTH_CONFIG` instance MUST be defined with `stealth_mode=True` and `headless=True` to configure the browser for evasion of bot detection."
+  ],
+  "acceptance_criteria": [
+    "The constants `FAST_CONFIG`, `FULL_CONFIG`, and `STEALTH_CONFIG` are importable from `src/seo/browser_config.py`.",
+    "The attributes of `FAST_CONFIG` reflect its purpose (e.g., `block_resources` is not empty).",
+    "The attributes of `FULL_CONFIG` reflect its purpose (e.g., `capture_screenshots` is True).",
+    "The attributes of `STEALTH_CONFIG` reflect its purpose (e.g., `stealth_mode` is True)."
+  ],
+  "target_files": [
+    {
+      "file_path": "src/seo/browser_config.py",
+      "integration_points": [
+        "Define `FAST_CONFIG = BrowserConfig(...)`.",
+        "Define `FULL_CONFIG = BrowserConfig(...)`.",
+        "Define `STEALTH_CONFIG = BrowserConfig(...)`."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Use the fast configuration",
+      "when": [
+        "A developer imports and inspects `FAST_CONFIG`"
+      ],
+      "then": [
+        "The `headless` attribute is `True`.",
+        "The `block_resources` attribute is a list containing strings like `\"image\"` and `\"stylesheet\"`."
+      ]
+    },
+    {
+      "name": "Use the full-capture configuration",
+      "when": [
+        "A developer imports and inspects `FULL_CONFIG`"
+      ],
+      "then": [
+        "The `headless` attribute is `False`.",
+        "The `capture_screenshots` attribute is `True`.",
+        "The `capture_network` attribute is `True`."
+      ]
+    },
+    {
+      "name": "Use the stealth configuration",
+      "when": [
+        "A developer imports and inspects `STEALTH_CONFIG`"
+      ],
+      "then": [
+        "The `stealth_mode` attribute is `True`."
+      ]
+    }
+  ],
+  "configuration": {},
+  "security": {
+    "requirements": [
+      "There are no new security requirements introduced by this story. It builds upon the validated model from the previous story."
+    ]
+  },
+  "performance": {
+    "slos": [
+      "There is no performance impact; these are constant, module-level object definitions."
+    ]
+  },
+  "error_handling": [],
+  "observability": {
+    "logging": [],
+    "metrics": []
+  },
+  "migration_plan": {
+    "deployment_steps": [
+      "Modify `src/seo/browser_config.py` to add the new constant definitions."
+    ],
+    "rollback_steps": [
+      "Revert the changes to `src/seo/browser_config.py`."
+    ]
+  },
+  "feature_flag": "N/A"
+}

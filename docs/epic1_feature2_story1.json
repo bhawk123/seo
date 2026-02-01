@@ -1,0 +1,81 @@
+{
+  "title": "Phase 1B-1: Spike - Implement BrowserCrawler Class Structure and Initialization",
+  "objective": "Create the foundational `BrowserCrawler` class that works as an async context manager, launching and closing its own browser instance.",
+  "phase0_poc": true,
+  "requirements": [
+    "A new module, `src/seo/browser_crawler.py`, MUST be created.",
+    "An `async` class named `BrowserCrawler` MUST be defined within this module.",
+    "The `BrowserCrawler`'s `__init__` method MUST accept a `BrowserConfig` object.",
+    "The `__init__` method MUST store the `BrowserConfig` instance as a private attribute.",
+    "The class MUST implement an `async def __aenter__(self)` method.",
+    "The `__aenter__` method MUST launch a new Playwright browser instance based on the `browser_type` in the config.",
+    "The `__aenter__` method MUST return `self`.",
+    "The class MUST implement an `async def __aexit__(self, exc_type, exc_val, exc_tb)` method.",
+    "The `__aexit__` method MUST gracefully close the browser instance.",
+    "A placeholder `async def crawl(self, url: str)` method MUST be defined, which MAY raise `NotImplementedError`."
+  ],
+  "acceptance_criteria": [
+    "The `src/seo/browser_crawler.py` file exists with the `BrowserCrawler` class definition.",
+    "The `BrowserCrawler` can be used as an async context manager: `async with BrowserCrawler(config) as crawler:`.",
+    "On entering the context, a browser is launched and the `crawler` object is available.",
+    "On exiting the context, the browser is closed, even if exceptions occur within the `async with` block."
+  ],
+  "target_files": [
+    {
+      "file_path": "src/seo/browser_crawler.py",
+      "integration_points": [
+        "Create new class `BrowserCrawler`.",
+        "Implement `__init__(self, config: BrowserConfig)` method.",
+        "Implement `async def __aenter__(self)`.",
+        "Implement `async def __aexit__(self, ...)`.",
+        "Create placeholder `crawl(self, url: str)` method."
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Successful async context management",
+      "when": [
+        "A developer uses `async with BrowserCrawler(config) as crawler:`"
+      ],
+      "then": [
+        "A browser instance is started when entering the block.",
+        "The `crawler` variable is a valid `BrowserCrawler` instance.",
+        "The browser instance is closed upon exiting the block."
+      ]
+    }
+  ],
+  "configuration": {},
+  "security": {
+    "requirements": [
+      "The crawler manages its own browser lifecycle, reducing the risk of mis-managed browser processes from calling code."
+    ]
+  },
+f  "performance": {
+    "slos": [
+      "The time to enter the async context (browser launch) SHOULD be within Playwright's typical launch times, generally < 2 seconds."
+    ]
+  },
+  "error_handling": [
+    {
+      "error": "Exception during browser launch",
+      "message": "If Playwright fails to launch a browser, a specific exception should be raised or propagated."
+    }
+  ],
+  "observability": {
+    "logging": [
+      "Log the launching of the browser at INFO level.",
+      "Log the closing of the browser at INFO level."
+    ],
+    "metrics": []
+  },
+  "migration_plan": {
+    "deployment_steps": [
+      "Deploy the new `src/seo/browser_crawler.py` module."
+    ],
+    "rollback_steps": [
+      "Remove the `src/seo/browser_crawler.py` module or revert the commit."
+    ]
+  },
+  "feature_flag": "enable_browser_crawler_core"
+}

@@ -1,0 +1,295 @@
+# enhanced_seo_analyzer.py
+from dataclasses import dataclass
+from typing import Dict, List, Optional
+import asyncio
+
+@dataclass
+class ComprehensiveSEOReport:
+    technical_seo: Dict
+    content_quality: Dict
+    user_experience: Dict
+    mobile_seo: Dict
+    page_speed: Dict
+    security: Dict
+    structured_data: Dict
+    link_profile: Dict
+    serp_optimization: Dict
+    competitive_analysis: Optional[Dict]
+    recommendations: List[Dict]
+    priority_actions: List[str]
+    estimated_impact: Dict
+
+class EnhancedSEOAnalyzer:
+    def __init__(self, llm):
+        self.llm = llm
+        
+    async def generate_comprehensive_report(self, domain: str) -> ComprehensiveSEOReport:
+        """Generate complete SEO audit report"""
+        
+        # Run all analyses in parallel
+        results = await asyncio.gather(
+            self.analyze_technical_seo(domain),
+            self.analyze_content_quality(domain),
+            self.analyze_user_experience(domain),
+            self.analyze_mobile_seo(domain),
+            self.analyze_page_speed(domain),
+            self.analyze_security(domain),
+            self.analyze_structured_data(domain),
+            self.analyze_link_profile(domain),
+            self.analyze_serp_optimization(domain),
+        )
+        
+        # Generate AI-powered recommendations
+        recommendations = await self.generate_ai_recommendations(results)
+        
+        # Prioritize actions
+        priority_actions = await self.prioritize_actions(results, recommendations)
+        
+        # Estimate impact
+        impact = await self.estimate_seo_impact(priority_actions)
+        
+        return ComprehensiveSEOReport(
+            technical_seo=results[0],
+            content_quality=results[1],
+            user_experience=results[2],
+            mobile_seo=results[3],
+            page_speed=results[4],
+            security=results[5],
+            structured_data=results[6],
+            link_profile=results[7],
+            serp_optimization=results[8],
+            competitive_analysis=None,
+            recommendations=recommendations,
+            priority_actions=priority_actions,
+            estimated_impact=impact
+        )
+    
+    async def generate_ai_recommendations(self, analysis_results):
+        """Use LLM to generate contextual recommendations"""
+        
+        prompt = f"""
+        As an SEO expert, analyze these comprehensive SEO audit results and provide:
+        
+        1. Top 10 High-Impact Quick Wins (can be implemented in 1 week)
+        2. Medium-term Strategy (1-3 months)
+        3. Long-term SEO Roadmap (3-12 months)
+        4. Resource allocation recommendations
+        5. Expected traffic/ranking improvements for each recommendation
+        
+        Audit Results:
+        {json.dumps(analysis_results, indent=2)}
+        
+        Format each recommendation with:
+        - Specific action steps
+        - Technical implementation details
+        - Expected impact (1-10 scale)
+        - Required resources
+        - Success metrics
+        """
+        
+        response = await self.llm.ainvoke(prompt)
+        return self.parse_recommendations(response)
+    
+    async def prioritize_actions(self, results, recommendations):
+        """Create prioritized action list based on impact vs effort"""
+        
+        prompt = f"""
+        Using the ICE (Impact, Confidence, Ease) framework, prioritize these SEO actions:
+        
+        Results: {json.dumps(results, indent=2)}
+        Recommendations: {json.dumps(recommendations, indent=2)}
+        
+        Score each action:
+        - Impact (1-10): Potential improvement in rankings/traffic
+        - Confidence (1-10): Certainty of achieving the impact
+        - Ease (1-10): How easy to implement (10 = very easy)
+        
+        Return top 20 actions sorted by ICE score (Impact × Confidence × Ease)
+        """
+        
+        response = await self.llm.ainvoke(prompt)
+        return self.parse_priorities(response)
+
+# Integration with existing crawler
+class ComprehensiveSEOCrawler(SEOCrawler):
+    """Enhanced crawler with additional data collection"""
+    
+    async def crawl_page_enhanced(self, session, url):
+        """Extended crawling with more SEO factors"""
+        base_data = await self.crawl_page(session, url)
+        
+        # Add enhanced analysis
+        enhanced_data = {
+            **base_data.__dict__,
+            'core_web_vitals': await self.measure_cwv(url),
+            'mobile_score': await self.test_mobile_friendly(url),
+            'structured_data_types': await self.extract_all_schema(url),
+            'internal_link_analysis': await self.analyze_internal_links(url),
+            'content_analysis': await self.deep_content_analysis(url),
+            'javascript_rendering': await self.check_js_rendering(url),
+        }
+        
+        return enhanced_data
+        
+class PerformanceAnalyzer:
+    async def analyze_core_web_vitals(self, url: str):
+        """Analyze Google's Core Web Vitals"""
+        return {
+            'lcp': self.measure_lcp(url),  # Largest Contentful Paint
+            'fid': self.measure_fid(url),  # First Input Delay
+            'cls': self.measure_cls(url),  # Cumulative Layout Shift
+            'ttfb': self.measure_ttfb(url), # Time to First Byte
+            'fcp': self.measure_fcp(url),   # First Contentful Paint
+            'tti': self.measure_tti(url),   # Time to Interactive
+            'tbt': self.measure_tbt(url),   # Total Blocking Time
+        }
+def analyze_mobile_seo(self, page_data):
+    return {
+        'viewport_meta': self.check_viewport_tag(),
+        'mobile_friendly_design': self.test_responsive_design(),
+        'tap_targets': self.analyze_tap_target_spacing(),
+        'font_sizes': self.check_readable_font_sizes(),
+        'horizontal_scrolling': self.detect_horizontal_scroll(),
+        'mobile_page_speed': self.measure_mobile_speed(),
+        'amp_validation': self.validate_amp_pages(),
+    }
+
+def analyze_structured_data(self, html):
+    return {
+        'schema_types': self.extract_schema_types(),
+        'schema_validation': self.validate_schema_markup(),
+        'rich_snippet_eligibility': self.check_rich_snippets(),
+        'knowledge_graph_data': self.analyze_organization_schema(),
+        'product_schema': self.check_product_markup(),
+        'faq_schema': self.detect_faq_schema(),
+        'breadcrumb_schema': self.check_breadcrumb_markup(),
+        'local_business_schema': self.analyze_local_markup(),
+    }
+    
+def analyze_international_seo(self, site_data):
+    return {
+        'hreflang_tags': self.analyze_hreflang_implementation(),
+        'language_declarations': self.check_lang_attributes(),
+        'geo_targeting': self.analyze_geo_targeting(),
+        'currency_localization': self.check_currency_display(),
+        'content_localization': self.assess_content_translation(),
+        'ccTLD_usage': self.check_country_domains(),
+    }
+
+def analyze_security(self, domain):
+    return {
+        'ssl_certificate': self.check_ssl_validity(),
+        'https_implementation': self.analyze_https_coverage(),
+        'mixed_content': self.detect_mixed_content(),
+        'security_headers': self.check_security_headers(),
+        'malware_check': self.scan_for_malware(),
+        'trust_badges': self.detect_trust_signals(),
+    }
+
+def analyze_content_quality(self, content, url):
+    return {
+        'readability_score': self.calculate_flesch_kincaid(),
+        'keyword_density': self.analyze_keyword_distribution(),
+        'semantic_keywords': self.extract_lsi_keywords(),
+        'content_freshness': self.check_last_modified(),
+        'content_depth': self.analyze_topic_coverage(),
+        'duplicate_content': self.check_internal_duplication(),
+        'content_gaps': self.identify_missing_topics(),
+        'e_a_t_signals': self.analyze_expertise_authority_trust(),
+    }
+
+def analyze_link_profile(self, site_data):
+    return {
+        'internal_link_structure': {
+            'orphan_pages': self.find_orphan_pages(),
+            'link_depth': self.calculate_click_depth(),
+            'internal_pagerank': self.calculate_internal_pagerank(),
+            'anchor_text_distribution': self.analyze_internal_anchors(),
+        },
+        'external_links': {
+            'broken_external_links': self.check_external_links(),
+            'link_quality': self.assess_outbound_link_quality(),
+            'nofollow_usage': self.analyze_nofollow_patterns(),
+            'sponsored_links': self.check_sponsored_attributes(),
+        }
+    }
+
+def analyze_crawlability(self, domain):
+    return {
+        'sitemap_analysis': {
+            'sitemap_exists': self.check_sitemap_presence(),
+            'sitemap_validity': self.validate_xml_sitemap(),
+            'indexed_vs_sitemap': self.compare_indexed_pages(),
+            'sitemap_freshness': self.check_lastmod_dates(),
+            'image_video_sitemaps': self.check_media_sitemaps(),
+        },
+        'robots_txt': {
+            'robots_validity': self.validate_robots_txt(),
+            'crawl_directives': self.analyze_crawl_rules(),
+            'crawl_budget_waste': self.identify_crawl_waste(),
+        }
+    }
+    
+def analyze_ux_signals(self, page_data):
+    return {
+        'navigation_structure': self.analyze_site_navigation(),
+        'breadcrumbs': self.check_breadcrumb_navigation(),
+        'search_functionality': self.test_site_search(),
+        '404_page_quality': self.analyze_404_pages(),
+        'accessibility_score': self.run_accessibility_audit(),
+        'forms_optimization': self.analyze_form_usability(),
+        'cta_effectiveness': self.analyze_call_to_actions(),
+    }
+    
+def analyze_javascript_seo(self, url):
+    return {
+        'rendering_issues': self.check_js_rendering(),
+        'lazy_loading': self.analyze_lazy_loading(),
+        'ajax_crawlability': self.check_ajax_content(),
+        'spa_seo': self.analyze_single_page_app(),
+        'critical_rendering_path': self.analyze_render_blocking(),
+        'js_errors': self.detect_console_errors(),
+    }
+    
+def analyze_local_seo(self, business_info):
+    return {
+        'nap_consistency': self.check_name_address_phone(),
+        'google_my_business': self.analyze_gmb_optimization(),
+        'local_citations': self.find_citation_opportunities(),
+        'local_schema': self.check_local_business_markup(),
+        'review_signals': self.analyze_review_presence(),
+        'local_content': self.assess_local_relevance(),
+    }
+    
+def analyze_competition(self, domain, competitors):
+    return {
+        'keyword_gaps': self.find_keyword_opportunities(),
+        'content_gaps': self.identify_content_opportunities(),
+        'backlink_gaps': self.analyze_link_opportunities(),
+        'technical_advantages': self.compare_technical_scores(),
+        'serp_features': self.compare_serp_presence(),
+        'traffic_estimates': self.estimate_traffic_comparison(),
+    }
+    
+def analyze_serp_features(self, keywords):
+    return {
+        'featured_snippets': self.analyze_snippet_opportunities(),
+        'people_also_ask': self.find_paa_opportunities(),
+        'knowledge_panel': self.check_knowledge_eligibility(),
+        'video_carousel': self.analyze_video_opportunities(),
+        'image_pack': self.check_image_optimization(),
+        'local_pack': self.analyze_local_pack_presence(),
+        'sitelinks': self.analyze_sitelink_eligibility(),
+    }
+    
+def analyze_url_structure(self, urls):
+    return {
+        'url_length': self.check_url_lengths(),
+        'url_keywords': self.analyze_keyword_usage_in_urls(),
+        'parameter_usage': self.check_url_parameters(),
+        'url_consistency': self.check_url_formatting(),
+        'trailing_slashes': self.analyze_slash_consistency(),
+        'url_hierarchy': self.analyze_folder_structure(),
+        'dynamic_urls': self.identify_dynamic_url_issues(),
+    }
+

@@ -1,0 +1,54 @@
+{
+  "thresholds": {
+    "meta_description_min": 120,
+    "meta_description_max": 160,
+    "title_min": 30,
+    "title_max": 60,
+    "slow_page_seconds": 3.0,
+    "thin_content_words": 300,
+
+    "lcp_good": 2500,
+    "lcp_poor": 4000,
+    "inp_good": 200,
+    "inp_poor": 500,
+    "cls_good": 0.1,
+    "cls_poor": 0.25,
+    "fcp_good": 1800,
+    "fcp_poor": 3000,
+    "tbt_good": 200,
+    "tbt_poor": 600,
+    "fid_good": 100,
+    "fid_poor": 300,
+
+    "max_js_size": 512000,
+    "max_css_size": 204800,
+    "max_image_size": 1048576,
+    "max_page_weight": 2097152,
+    "max_font_size": 102400,
+
+    "max_url_length": 100,
+    "max_url_depth": 4,
+    "max_url_parameters": 3,
+
+    "hsts_min_max_age": 31536000,
+
+    "min_readability_score": 50.0,
+    "keyword_stuffing_threshold": 3.0,
+
+    "lazy_load_threshold": 3,
+
+    "redirect_ms_per_hop": 100,
+    "redirect_long_chain_threshold": 3,
+
+    "lab_field_significant_gap": 20.0,
+
+    "console_error_top_count": 10,
+    "console_pages_top_count": 20,
+
+    "third_party_high_percentage": 30.0,
+    "third_party_high_requests": 20,
+
+    "social_og_coverage_target": 80.0,
+    "social_twitter_coverage_target": 80.0
+  }
+}
