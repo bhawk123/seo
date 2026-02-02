@@ -85,6 +85,10 @@ def parse_args():
         help="Disable LLM-powered recommendations"
     )
     parser.add_argument(
+        "--ignore-robots", action="store_true",
+        help="Ignore robots.txt restrictions (use with caution)"
+    )
+    parser.add_argument(
         "--no-open", action="store_true",
         help="Don't open report in browser after crawl (for headless environments)"
     )
@@ -411,6 +415,8 @@ async def main():
         print(f"PageSpeed Insights: DISABLED")
     if address_config:
         print(f"Address: {address_config.get('address')}, {address_config.get('city', '')}, {address_config.get('zip')}")
+    if args.ignore_robots:
+        print(f"Robots.txt: IGNORED")
     print()
 
     crawler = AsyncSiteCrawler(
@@ -429,6 +435,7 @@ async def main():
         psi_strategy=args.psi_strategy,
         psi_sample_rate=args.psi_sample,
         address_config=address_config,
+        ignore_robots=args.ignore_robots,
     )
     _crawler = crawler
 

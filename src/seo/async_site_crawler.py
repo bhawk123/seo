@@ -112,6 +112,7 @@ class AsyncSiteCrawler:
         psi_strategy: str = "mobile",
         psi_sample_rate: float = 0.1,
         address_config: Optional[dict] = None,
+        ignore_robots: bool = False,
     ):
         """Initialize the async site crawler.
 
@@ -130,6 +131,7 @@ class AsyncSiteCrawler:
             psi_api_key: Google API key for PageSpeed Insights
             psi_strategy: PSI strategy - 'mobile' or 'desktop'
             psi_sample_rate: Fraction of pages to analyze with PSI (0.0-1.0)
+            ignore_robots: Ignore robots.txt restrictions
         """
         self.max_pages = max_pages
         self.max_depth = max_depth
@@ -138,6 +140,7 @@ class AsyncSiteCrawler:
         self.max_concurrent = max_concurrent
         self.timeout = timeout * 1000  # Playwright uses milliseconds
         self.headless = headless
+        self.ignore_robots = ignore_robots
 
         # Resume state support
         self._output_manager = output_manager
@@ -1175,13 +1178,17 @@ class AsyncSiteCrawler:
         Returns:
             True if URL can be crawled
         """
+        if self.ignore_robots:
+            return True
+
         parsed = urlparse(url)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
 
         if base_url not in self.robots_parsers:
             return True  # If no robots.txt, allow
 
-        return self.robots_parsers[base_url].can_fetch(self.user_agent, url)
+        user_agent = self.user_agent or self._chrome_user_agent or "*"
+        return self.robots_parsers[base_url].can_fetch(user_agent, url)
 
     def _extract_metadata(
         self,
