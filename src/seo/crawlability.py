@@ -10,10 +10,18 @@ Analyzes factors affecting search engine crawling:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Set
+from datetime import datetime
+from typing import List, Dict, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 import xml.etree.ElementTree as ET
 from urllib.robotparser import RobotFileParser
+
+from seo.models import (
+    EvidenceRecord,
+    EvidenceCollection,
+    ConfidenceLevel,
+    EvidenceSourceType,
+)
 
 
 @dataclass
@@ -51,6 +59,9 @@ class CrawlabilityScore:
     # Overall score
     overall_score: int = 0  # 0-100
 
+    # Evidence trail
+    evidence: Dict = field(default_factory=dict)
+
 
 class CrawlabilityAnalyzer:
     """Analyze website crawlability factors."""
@@ -68,6 +79,7 @@ class CrawlabilityAnalyzer:
         self.domain = f"{parsed.scheme}://{parsed.netloc}"
         self.robots_txt_content = robots_txt_content
         self.robot_parser = None
+        self._evidence_collection: Optional[EvidenceCollection] = None
 
     def analyze(
         self,
@@ -84,8 +96,13 @@ class CrawlabilityAnalyzer:
             broken_links: List of broken internal links
 
         Returns:
-            CrawlabilityScore with analysis results
+            CrawlabilityScore with analysis results and evidence
         """
+        self._evidence_collection = EvidenceCollection(
+            finding='crawlability',
+            component_id='crawlability_analyzer',
+        )
+
         score = CrawlabilityScore()
 
         # Analyze robots.txt
@@ -104,6 +121,12 @@ class CrawlabilityAnalyzer:
         # Calculate overall score
         self._calculate_overall_score(score)
 
+        # Add summary evidence
+        self._add_summary_evidence(score)
+
+        # Attach evidence to score
+        score.evidence = self._evidence_collection.to_dict()
+
         return score
 
     def _analyze_robots_txt(self, score: CrawlabilityScore):
@@ -114,9 +137,20 @@ class CrawlabilityAnalyzer:
         if self.robots_txt_content:
             score.has_robots_txt = True
             self._parse_robots_txt(score)
+            # Add robots.txt evidence
+            self._add_robots_txt_evidence(score)
         else:
             score.robots_txt_warnings.append(
                 "robots.txt not fetched (may not exist or wasn't accessible)"
+            )
+            # Add missing robots.txt evidence
+            self._add_evidence(
+                finding='missing_robots_txt',
+                evidence_string='robots.txt not found or not accessible',
+                confidence=ConfidenceLevel.HIGH,
+                source_type=EvidenceSourceType.MEASUREMENT,
+                measured_value={'exists': False},
+                reasoning='robots.txt is recommended for controlling crawler behavior',
             )
 
     def _parse_robots_txt(self, score: CrawlabilityScore):
@@ -339,3 +373,187 @@ class CrawlabilityAnalyzer:
             )
 
         return recommendations
+
+    def _add_evidence(
+        self,
+        finding: str,
+        evidence_string: str,
+        confidence: ConfidenceLevel,
+        source_type: EvidenceSourceType,
+        measured_value=None,
+        reasoning: str = None,
+        input_summary: Dict = None,
+    ) -> None:
+        """Add an evidence record.
+
+        Args:
+            finding: Finding type
+            evidence_string: Human-readable evidence description
+            confidence: Confidence level
+            source_type: Type of evidence source
+            measured_value: The measured/detected value
+            reasoning: Explanation of the finding
+            input_summary: Additional context
+        """
+        record = EvidenceRecord(
+            component_id='crawlability_analyzer',
+            finding=finding,
+            evidence_string=evidence_string,
+            confidence=confidence,
+            timestamp=datetime.now(),
+            source='Crawlability Analysis',
+            source_type=source_type,
+            source_location=self.domain,
+            measured_value=measured_value,
+            ai_generated=False,
+            reasoning=reasoning,
+            input_summary=input_summary,
+        )
+        self._evidence_collection.add_record(record)
+
+    def _add_robots_txt_evidence(self, score: CrawlabilityScore) -> None:
+        """Add evidence for robots.txt analysis.
+
+        Args:
+            score: The crawlability score object
+        """
+        # Add evidence for disallow rules by user-agent
+        user_agent_rules = self._parse_rules_by_user_agent()
+
+        self._add_evidence(
+            finding='robots_txt_parsed',
+            evidence_string=f'robots.txt: {len(score.disallowed_rules)} disallow rules, {len(score.sitemap_urls_in_robots)} sitemaps',
+            confidence=ConfidenceLevel.HIGH,
+            source_type=EvidenceSourceType.MEASUREMENT,
+            measured_value={
+                'has_robots_txt': True,
+                'disallow_count': len(score.disallowed_rules),
+                'sitemap_count': len(score.sitemap_urls_in_robots),
+                'rules_by_user_agent': user_agent_rules,
+            },
+            reasoning='Parsed robots.txt directives',
+            input_summary={
+                'robots_url': score.robots_txt_url,
+                'content_length': len(self.robots_txt_content) if self.robots_txt_content else 0,
+            },
+        )
+
+        # Add evidence for each disallow rule
+        for rule in score.disallowed_rules[:10]:  # First 10 for brevity
+            self._add_evidence(
+                finding='disallow_rule',
+                evidence_string=rule,
+                confidence=ConfidenceLevel.HIGH,
+                source_type=EvidenceSourceType.MEASUREMENT,
+                measured_value={'path': rule, 'user_agent': '*'},
+                reasoning='Disallow rule found in robots.txt',
+            )
+
+        # Add evidence for sitemap references
+        for sitemap_url in score.sitemap_urls_in_robots:
+            self._add_evidence(
+                finding='sitemap_reference',
+                evidence_string=sitemap_url,
+                confidence=ConfidenceLevel.HIGH,
+                source_type=EvidenceSourceType.MEASUREMENT,
+                measured_value={'sitemap_url': sitemap_url},
+                reasoning='Sitemap URL declared in robots.txt',
+            )
+
+        # Add evidence for robots.txt errors
+        for error in score.robots_txt_errors:
+            self._add_evidence(
+                finding='robots_txt_error',
+                evidence_string=error,
+                confidence=ConfidenceLevel.HIGH,
+                source_type=EvidenceSourceType.CALCULATION,
+                measured_value={'error': error, 'severity': 'critical'},
+                reasoning='Critical issue in robots.txt configuration',
+            )
+
+    def _parse_rules_by_user_agent(self) -> Dict[str, int]:
+        """Parse disallow rules grouped by user-agent.
+
+        Returns:
+            Dict mapping user-agent to disallow count
+        """
+        if not self.robots_txt_content:
+            return {}
+
+        rules_by_ua: Dict[str, int] = {}
+        current_ua = '*'
+
+        for line in self.robots_txt_content.split('\n'):
+            line = line.strip().lower()
+            if line.startswith('user-agent:'):
+                current_ua = line.split(':', 1)[1].strip()
+                if current_ua not in rules_by_ua:
+                    rules_by_ua[current_ua] = 0
+            elif line.startswith('disallow:'):
+                rules_by_ua[current_ua] = rules_by_ua.get(current_ua, 0) + 1
+
+        return rules_by_ua
+
+    def _add_summary_evidence(self, score: CrawlabilityScore) -> None:
+        """Add summary evidence for crawlability analysis.
+
+        Args:
+            score: The completed crawlability score object
+        """
+        # Add orphan pages evidence
+        if score.orphan_pages:
+            self._add_evidence(
+                finding='orphan_pages',
+                evidence_string=f'{len(score.orphan_pages)} orphan pages detected',
+                confidence=ConfidenceLevel.MEDIUM,  # Heuristic-based detection
+                source_type=EvidenceSourceType.HEURISTIC,
+                measured_value={
+                    'count': len(score.orphan_pages),
+                    'sample_urls': score.orphan_pages[:5],
+                },
+                reasoning='Pages discovered but not crawled through internal links',
+            )
+
+        # Add sitemap URL count evidence
+        self._add_evidence(
+            finding='sitemap_urls',
+            evidence_string=f'{score.total_urls_in_sitemaps} URLs in sitemaps, {score.pages_crawled} pages crawled',
+            confidence=ConfidenceLevel.HIGH,
+            source_type=EvidenceSourceType.MEASUREMENT,
+            measured_value={
+                'sitemap_urls': score.total_urls_in_sitemaps,
+                'pages_crawled': score.pages_crawled,
+                'pages_in_sitemap': score.pages_in_sitemap,
+            },
+            reasoning='Sitemap coverage analysis',
+        )
+
+        # Add overall summary evidence
+        self._add_evidence(
+            finding='crawlability_summary',
+            evidence_string=f'Crawlability score: {score.overall_score}/100, Efficiency: {score.crawl_efficiency_score}/100',
+            confidence=ConfidenceLevel.HIGH,
+            source_type=EvidenceSourceType.CALCULATION,
+            measured_value={
+                'overall_score': score.overall_score,
+                'crawl_efficiency_score': score.crawl_efficiency_score,
+                'has_robots_txt': score.has_robots_txt,
+                'has_xml_sitemap': score.has_xml_sitemap,
+                'robots_errors': len(score.robots_txt_errors),
+                'sitemap_errors': len(score.sitemap_errors),
+                'orphan_pages': len(score.orphan_pages),
+                'broken_links': score.broken_links_count,
+            },
+            ai_generated=False,
+            reasoning='Summary of all crawlability factors',
+            input_summary={
+                'score_breakdown': {
+                    'robots_txt_present': 20,
+                    'no_robots_errors': 15,
+                    'sitemap_present': 25,
+                    'no_sitemap_errors': 15,
+                    'few_orphan_pages': 10,
+                    'crawl_efficiency': 15,
+                },
+            },
+        )

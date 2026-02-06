@@ -15,10 +15,10 @@ Feature: Standardized Evidence Capture
   @technology @evidence @story-1
   Scenario: Capturing Evidence for Technology Detection
     Given the SEO analysis tool is configured to scan a website
-    When the tool detects a specific technology, such as Magento
+    When the tool detects a specific technology, such as Magento/Adobe Commerce
     And the detection is based on finding the string "mage/cookies.js" in a network request
     Then the final report data should include an evidence record for the "Technology Detection" component
-    And this evidence record should contain the finding "Magento"
+    And this evidence record should contain the finding "Magento/Adobe Commerce"
     And the evidence record should specify the matched string "mage/cookies.js" as evidence
     And the evidence record should have a confidence level of "High"
 

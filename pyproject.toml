@@ -23,6 +23,8 @@ dependencies = [
     "pydantic>=2.0.0",
     "rebrowser-playwright>=1.49.1",
     "pyyaml (>=6.0.3,<7.0.0)",
+    "faker>=24.0.0",
+    "libsql-client (>=0.3.1) ; python_version >= \"3.12\" and python_version < \"4.0\"",
 ]
 
 [project.optional-dependencies]
@@ -45,3 +47,15 @@ packages = [{include = "seo", from = "src"}]
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.0.2,<10.0.0)",
+    "pytest-cov (>=7.0.0,<8.0.0)"
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "e2e: End-to-end tests that test the full pipeline",
+    "integration: Integration tests that may make network calls",
+]

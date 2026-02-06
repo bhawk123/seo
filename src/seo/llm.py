@@ -1,8 +1,17 @@
 """LLM client for SEO analysis."""
 
 from typing import Optional
+from datetime import datetime
+import hashlib
 import os
 import toon
+
+from seo.models import (
+    EvidenceRecord,
+    EvidenceCollection,
+    ConfidenceLevel,
+    EvidenceSourceType,
+)
 
 
 class LLMClient:
@@ -44,13 +53,151 @@ class LLMClient:
             url: Page URL
 
         Returns:
-            Dictionary containing SEO analysis results
+            Dictionary containing SEO analysis results with evidence trail
         """
+        # Capture input summary for evidence trail
+        input_summary = self._build_input_summary(content, metadata, url)
+
         prompt = self._build_seo_prompt(content, metadata, url)
+
+        # Generate prompt hash for reproducibility
+        prompt_hash = self._compute_prompt_hash(prompt)
 
         response = self._call_llm(prompt)
 
-        return self._parse_seo_response(response)
+        result = self._parse_seo_response(response)
+
+        # Create evidence collection for this LLM analysis
+        evidence = self._create_evidence(
+            result=result,
+            input_summary=input_summary,
+            prompt_hash=prompt_hash,
+            raw_response=response,
+            url=url,
+        )
+
+        # Add evidence to result
+        result['evidence'] = evidence
+        result['ai_generated'] = True
+        result['model_id'] = self.model
+        result['provider'] = self.provider
+
+        return result
+
+    def _build_input_summary(
+        self, content: str, metadata: dict, url: str
+    ) -> dict:
+        """Build a summary of inputs provided to the LLM.
+
+        This captures what data was sent to the LLM for audit trail purposes.
+
+        Args:
+            content: Page content
+            metadata: Page metadata
+            url: Page URL
+
+        Returns:
+            Dictionary summarizing inputs
+        """
+        title = metadata.get('title', '')
+        description = metadata.get('description', '')
+        h1_tags = metadata.get('h1_tags', [])
+
+        return {
+            'url': url,
+            'title': title,
+            'title_length': len(title) if title else 0,
+            'description': description,
+            'description_length': len(description) if description else 0,
+            'h1_count': len(h1_tags) if h1_tags else 0,
+            'h1_tags': h1_tags[:5] if h1_tags else [],  # First 5 H1s
+            'word_count': metadata.get('word_count', 0),
+            'content_snippet': content[:1000] if content else '',
+            'content_length': len(content) if content else 0,
+            'keywords': metadata.get('keywords', [])[:10],  # First 10 keywords
+        }
+
+    def _compute_prompt_hash(self, prompt: str) -> str:
+        """Compute SHA-256 hash of the prompt for reproducibility.
+
+        Args:
+            prompt: The full prompt text
+
+        Returns:
+            SHA-256 hash string
+        """
+        return hashlib.sha256(prompt.encode('utf-8')).hexdigest()
+
+    def _create_evidence(
+        self,
+        result: dict,
+        input_summary: dict,
+        prompt_hash: str,
+        raw_response: str,
+        url: str,
+    ) -> dict:
+        """Create evidence collection for LLM analysis.
+
+        Args:
+            result: Parsed LLM result
+            input_summary: Summary of inputs to LLM
+            prompt_hash: Hash of the prompt
+            raw_response: Raw LLM response text
+            url: URL being analyzed
+
+        Returns:
+            Evidence collection as dictionary
+        """
+        evidence_collection = EvidenceCollection(
+            finding='seo_analysis',
+            component_id='llm_scoring',
+        )
+
+        # Extract reasoning if present
+        reasoning = result.get('reasoning', '')
+        if not reasoning and 'weaknesses' in result:
+            # Build reasoning from weaknesses if not explicitly provided
+            reasoning = '; '.join(result.get('weaknesses', []))
+
+        # Create evidence record for overall score
+        overall_record = EvidenceRecord.from_llm(
+            component_id='llm_scoring',
+            finding=f"overall_score:{result.get('overall_score', 0)}",
+            model_id=self.model,
+            reasoning=reasoning,
+            input_summary=input_summary,
+            prompt_hash=prompt_hash,
+        )
+        overall_record.source_location = url
+        overall_record.measured_value = result.get('overall_score', 0)
+        evidence_collection.add_record(overall_record)
+
+        # Create evidence records for individual scores
+        score_fields = [
+            ('title_score', 'Title optimization score'),
+            ('description_score', 'Meta description score'),
+            ('content_score', 'Content quality score'),
+            ('technical_score', 'Technical SEO score'),
+        ]
+
+        for field, description in score_fields:
+            if field in result:
+                record = EvidenceRecord(
+                    component_id='llm_scoring',
+                    finding=f"{field}:{result[field]}",
+                    evidence_string=description,
+                    confidence=ConfidenceLevel.MEDIUM,  # LLM outputs capped at MEDIUM
+                    timestamp=datetime.now(),
+                    source='LLM Inference',
+                    source_type=EvidenceSourceType.LLM_INFERENCE,
+                    source_location=url,
+                    ai_generated=True,
+                    model_id=self.model,
+                    measured_value=result[field],
+                )
+                evidence_collection.add_record(record)
+
+        return evidence_collection.to_dict()
 
     def _build_seo_prompt(
         self, content: str, metadata: dict, url: str
@@ -65,15 +212,20 @@ class LLMClient:
         Returns:
             Formatted prompt string
         """
+        title = metadata.get('title', 'N/A')
+        description = metadata.get('description', 'N/A')
+        h1_tags = metadata.get('h1_tags', [])
+        word_count = metadata.get('word_count', 0)
+
         return f"""Analyze the following web page for SEO quality and provide recommendations.
 
 URL: {url}
 
 Metadata:
-- Title: {metadata.get('title', 'N/A')}
-- Description: {metadata.get('description', 'N/A')}
-- H1 Tags: {', '.join(metadata.get('h1_tags', []))}
-- Word Count: {metadata.get('word_count', 0)}
+- Title: {title} (Length: {len(title) if title != 'N/A' else 0} characters)
+- Description: {description} (Length: {len(description) if description != 'N/A' else 0} characters)
+- H1 Tags: {', '.join(h1_tags) if h1_tags else 'None'} (Count: {len(h1_tags)})
+- Word Count: {word_count}
 
 Content Preview (first 1000 chars):
 {content[:1000]}
@@ -81,13 +233,14 @@ Content Preview (first 1000 chars):
 Please provide:
 1. An overall SEO score (0-100)
 2. Individual scores for:
-   - Title optimization
-   - Meta description
-   - Content quality
-   - Technical SEO
+   - Title optimization (consider: length 50-60 chars ideal, keyword presence)
+   - Meta description (consider: length 120-160 chars ideal, compelling copy)
+   - Content quality (consider: word count > 300, readability, structure)
+   - Technical SEO (consider: proper tags, structure, accessibility)
 3. List of strengths
 4. List of weaknesses
 5. Actionable recommendations for improvement
+6. A brief reasoning explaining the overall score, referencing specific measurements
 
 Format your response ONLY as TOON (Token-Oriented Object Notation) with NO additional text.
 Use this exact structure:
@@ -99,6 +252,7 @@ technical_score: <number>
 strengths[N]: <comma-separated values>
 weaknesses[N]: <comma-separated values>
 recommendations[N]: <comma-separated values>
+reasoning: <one paragraph explaining the overall score with specific data references>
 
 Where [N] is the count of items in each array.
 """
@@ -208,7 +362,7 @@ Where [N] is the count of items in each array.
             expected_keys = {
                 'overall_score', 'title_score', 'description_score',
                 'content_score', 'technical_score', 'strengths',
-                'weaknesses', 'recommendations'
+                'weaknesses', 'recommendations', 'reasoning'
             }
 
             # Filter to only expected keys

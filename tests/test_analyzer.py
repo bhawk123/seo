@@ -113,7 +113,9 @@ class TestSEOAnalyzer:
         }
 
         technical_analyzer = TechnicalAnalyzer()
-        issues = technical_analyzer.analyze(site_data)
+        result = technical_analyzer.analyze(site_data)
+        # Handle both tuple return (issues, evidence) and direct return
+        issues = result[0] if isinstance(result, tuple) else result
 
         assert len(issues.orphan_pages) == 1
         assert issues.orphan_pages[0] == orphan_url
@@ -136,7 +138,9 @@ class TestSEOAnalyzer:
         }
 
         technical_analyzer = TechnicalAnalyzer()
-        issues = technical_analyzer.analyze(site_data)
+        result = technical_analyzer.analyze(site_data)
+        # Handle both tuple return (issues, evidence) and direct return
+        issues = result[0] if isinstance(result, tuple) else result
 
         assert len(issues.broken_links) == 1
         source_page, broken_links_list = issues.broken_links[0]

@@ -12,7 +12,120 @@ from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 import yaml
 
+try:
+    from faker import Faker
+    FAKER_AVAILABLE = True
+except ImportError:
+    FAKER_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
+
+
+import random as _random
+
+# Common email providers for realistic fake emails
+EMAIL_PROVIDERS = [
+    "gmail.com",
+    "yahoo.com",
+    "outlook.com",
+    "hotmail.com",
+    "icloud.com",
+    "aol.com",
+    "protonmail.com",
+    "mail.com",
+]
+
+
+def generate_fake_email(fake, first: str, last: str) -> str:
+    """
+    Generate a realistic fake email using common providers.
+
+    Args:
+        fake: Faker instance
+        first: First name
+        last: Last name
+
+    Returns:
+        Fake email address with common provider domain
+    """
+    provider = _random.choice(EMAIL_PROVIDERS)
+
+    # Various email formats people actually use
+    formats = [
+        f"{first.lower()}.{last.lower()}",           # john.smith
+        f"{first.lower()}{last.lower()}",            # johnsmith
+        f"{first[0].lower()}{last.lower()}",         # jsmith
+        f"{first.lower()}{last[0].lower()}",         # johns
+        f"{first.lower()}.{last.lower()}{_random.randint(1, 99)}",  # john.smith42
+        f"{first.lower()}{_random.randint(1, 999)}", # john123
+        f"{last.lower()}.{first.lower()}",           # smith.john
+    ]
+
+    username = _random.choice(formats)
+    return f"{username}@{provider}"
+
+
+def generate_random_test_data(locale: str = "en_US") -> Dict[str, str]:
+    """
+    Generate randomized test data using Faker.
+
+    Args:
+        locale: Faker locale (default: en_US)
+
+    Returns:
+        Dict with randomized test values
+    """
+    if not FAKER_AVAILABLE:
+        logger.warning("Faker not installed, using static test data")
+        return TEST_DATA.copy()
+
+    fake = Faker(locale)
+
+    first = fake.first_name()
+    last = fake.last_name()
+
+    return {
+        # Personal info
+        "first_name": first,
+        "last_name": last,
+        "full_name": f"{first} {last}",
+        "email": generate_fake_email(fake, first, last),
+        "phone": fake.numerify("##########"),
+        "phone_formatted": fake.phone_number(),
+
+        # Address
+        "address": fake.street_address(),
+        "address_line1": fake.street_address(),
+        "address_line2": "",
+        "unit": "",
+        "apt": "",
+        "city": fake.city(),
+        "state": fake.state_abbr(),
+        "state_full": fake.state(),
+        "zip": fake.zipcode(),
+        "zip_full": fake.zipcode_plus4(),
+        "country": "United States",
+
+        # Account
+        "username": fake.user_name(),
+        "password": fake.password(length=12, special_chars=True),
+
+        # Payment (test card - will decline but validates format)
+        "cc_number": "4111111111111111",
+        "cc_exp": "01/29",
+        "cc_exp_month": "01",
+        "cc_exp_year": "29",
+        "cc_exp_year_full": "2029",
+        "cc_cvv": "123",
+        "cc_name": f"{first} {last}",
+
+        # Other
+        "company": fake.company(),
+        "website": fake.url(),
+        "message": fake.paragraph(nb_sentences=2),
+        "date": fake.date(pattern="%m/%d/%Y"),
+        "ssn_last4": fake.numerify("####"),
+    }
 
 
 @dataclass
@@ -224,25 +337,45 @@ def classify_form_type(fields: List[FormField]) -> Tuple[str, bool]:
 class FormHandler:
     """Handles form detection, analysis, and filling."""
 
-    def __init__(self, test_data: Optional[Dict] = None, address_yaml_path: Optional[Path] = None):
+    def __init__(
+        self,
+        test_data: Optional[Dict] = None,
+        address_yaml_path: Optional[Path] = None,
+        randomize: bool = False,
+        locale: str = "en_US",
+    ):
         """
         Initialize form handler.
 
         Args:
             test_data: Override default test data
             address_yaml_path: Path to address.yaml for address data
+            randomize: If True, generate random test data using Faker
+            locale: Faker locale for random data (default: en_US)
         """
-        self.test_data = test_data or TEST_DATA.copy()
+        if randomize:
+            self.test_data = generate_random_test_data(locale)
+            logger.info(f"Using randomized test data (locale: {locale})")
+        else:
+            self.test_data = test_data or TEST_DATA.copy()
 
-        # Load addresses from yaml if provided
+        # Load addresses from yaml if provided (overrides random address data)
         if address_yaml_path and address_yaml_path.exists():
             self._load_addresses(address_yaml_path)
 
     def _load_addresses(self, yaml_path: Path):
-        """Load address data from address.yaml"""
+        """Load address and default registration data from address.yaml"""
         try:
             with open(yaml_path) as f:
                 data = yaml.safe_load(f)
+
+            # Load defaults section (personal info, phone, etc.)
+            defaults = data.get("defaults", {})
+            for key, value in defaults.items():
+                if value:
+                    self.test_data[key] = value
+            if defaults:
+                logger.info(f"Loaded defaults: {', '.join(defaults.keys())}")
 
             # Use serviceable address for test data
             serviceable = data.get("serviceable", [])
@@ -748,7 +881,12 @@ async def analyze_page_forms(page) -> List[FormAnalysis]:
     return await handler.find_and_analyze_forms(page)
 
 
-async def auto_configure_page(page, address_yaml: Path = None) -> Dict:
+async def auto_configure_page(
+    page,
+    address_yaml: Path = None,
+    randomize: bool = False,
+    locale: str = "en_US",
+) -> Dict:
     """
     Automatically handle a configurator page:
     - Fill dropdowns with first options
@@ -756,9 +894,19 @@ async def auto_configure_page(page, address_yaml: Path = None) -> Dict:
     - Fill forms with test data
     - Click continue (but not checkout)
 
+    Args:
+        page: Playwright page
+        address_yaml: Path to address.yaml for test data
+        randomize: If True, generate random data using Faker
+        locale: Faker locale for random data
+
     Returns:
         Dict with actions taken
     """
-    handler = FormHandler(address_yaml_path=address_yaml)
+    handler = FormHandler(
+        address_yaml_path=address_yaml,
+        randomize=randomize,
+        locale=locale,
+    )
     results = await handler.handle_configurator_step(page)
     return results

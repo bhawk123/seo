@@ -32,6 +32,24 @@
         }
     </script>
     <style>
+        /* NE Brand Colors */
+        :root {
+            --ne-gold: #967847;
+            --ne-gold-light: rgba(150, 120, 71, 0.15);
+            --ne-gold-hover: rgba(150, 120, 71, 0.25);
+            --ne-dark: #2c3e50;
+            --ne-text: #333333;
+            --ne-text-secondary: #7f8c8d;
+            --ne-bg: #ffffff;
+            --ne-bg-alt: #f8f9fa;
+            --ne-header-bg: #1a1a1a;
+            --ne-border-light: #e0e0e0;
+            --ne-success: #27ae60;
+            --ne-warning: #f39c12;
+            --ne-error: #e74c3c;
+            --ne-info: #3498db;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -39,18 +57,32 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            font-family: 'Segoe UI', Arial, sans-serif;
             line-height: 1.6;
-            color: #2d3748;
-            background: #f7fafc;
+            color: var(--ne-text);
+            background: var(--ne-bg-alt);
         }
 
-        /* Header */
+        /* NE Logo */
+        .ne-logo-link {
+            display: flex;
+            align-items: center;
+            text-decoration: none;
+        }
+        .ne-logo path {
+            fill: #967847;
+            transition: fill 0.2s ease;
+        }
+        .ne-logo-link:hover .ne-logo path {
+            fill: #ffffff;
+        }
+
+        /* Header - NE Branded */
         header {
-            background: #1a365d;
+            background: var(--ne-header-bg);
             color: #ffffff;
             padding: 40px 0;
-            border-bottom: 4px solid #2c5282;
+            border-bottom: 3px solid var(--ne-gold);
         }
 
         header .container-inner {
@@ -76,14 +108,14 @@
             max-width: 1200px;
             margin: 0 auto;
             background: #ffffff;
-            border: 1px solid #e2e8f0;
+            border: 1px solid var(--ne-border-light);
             margin-top: 20px;
         }
 
         .tab-nav {
             display: flex;
             background: #edf2f7;
-            border-bottom: 2px solid #2c5282;
+            border-bottom: 2px solid var(--ne-gold);
             overflow-x: auto;
         }
 
@@ -96,15 +128,15 @@
             cursor: pointer;
             font-weight: 500;
             font-size: 13px;
-            color: #4a5568;
+            color: var(--ne-text);
             border-bottom: 3px solid transparent;
             white-space: nowrap;
             transition: all 0.2s;
         }
 
         .tab-nav label:hover {
-            background: #e2e8f0;
-            color: #1a365d;
+            background: var(--ne-border-light);
+            color: var(--ne-dark);
         }
 
         #tab1:checked ~ .tab-nav label[for="tab1"],
@@ -117,9 +149,9 @@
         #tab8:checked ~ .tab-nav label[for="tab8"],
         #tab9:checked ~ .tab-nav label[for="tab9"],
         #tab10:checked ~ .tab-nav label[for="tab10"] {
-            color: #1a365d;
+            color: var(--ne-dark);
             background: #ffffff;
-            border-bottom-color: #2c5282;
+            border-bottom-color: var(--ne-gold);
         }
 
         .tab-content {
@@ -150,23 +182,23 @@
         /* Legend */
         .perf-legend {
             font-size: 12px;
-            color: #718096;
+            color: var(--ne-text-secondary);
             margin-bottom: 16px;
             padding: 12px;
-            background: #f7fafc;
-            border-radius: 4px;
+            background: var(--ne-bg-alt);
+            border-radius: 0;
         }
         .perf-legend span {
             margin-right: 16px;
         }
         .perf-legend strong {
-            color: #4a5568;
+            color: var(--ne-text);
         }
 
         /* Executive Summary */
         .summary-intro {
             font-size: 16px;
-            color: #4a5568;
+            color: var(--ne-text);
             margin-bottom: 24px;
             line-height: 1.8;
         }
@@ -179,20 +211,20 @@
         }
 
         .stat-card {
-            background: #f7fafc;
-            border: 1px solid #e2e8f0;
+            background: var(--ne-bg-alt);
+            border: 1px solid var(--ne-border-light);
             padding: 20px;
         }
 
         .stat-value {
             font-size: 36px;
             font-weight: 600;
-            color: #1a365d;
+            color: var(--ne-dark);
         }
 
         .stat-label {
             font-size: 14px;
-            color: #718096;
+            color: var(--ne-text-secondary);
             margin-top: 8px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -202,30 +234,30 @@
         h2 {
             font-size: 24px;
             font-weight: 600;
-            color: #1a365d;
+            color: var(--ne-dark);
             margin: 32px 0 20px;
             padding-bottom: 8px;
-            border-bottom: 2px solid #2c5282;
+            border-bottom: 2px solid var(--ne-gold);
         }
 
         h3 {
             font-size: 18px;
             font-weight: 600;
-            color: #2d3748;
+            color: var(--ne-text);
             margin: 24px 0 12px;
         }
 
         /* Issue Pattern Sections */
         .issue-pattern {
             margin-bottom: 32px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid var(--ne-border-light);
             background: #ffffff;
         }
 
         .pattern-header {
             background: #edf2f7;
             padding: 16px 20px;
-            border-bottom: 1px solid #e2e8f0;
+            border-bottom: 1px solid var(--ne-border-light);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -234,7 +266,7 @@
         .pattern-title {
             font-size: 16px;
             font-weight: 600;
-            color: #2d3748;
+            color: var(--ne-text);
         }
 
         .pattern-count {
@@ -250,7 +282,7 @@
         }
 
         .pattern-count.info {
-            background: #3182ce;
+            background: var(--ne-gold);
         }
 
         .pattern-body {
@@ -258,7 +290,7 @@
         }
 
         .pattern-description {
-            color: #4a5568;
+            color: var(--ne-text);
             margin-bottom: 16px;
             line-height: 1.7;
         }
@@ -294,7 +326,7 @@
         }
 
         thead {
-            background: #1a365d;
+            background: var(--ne-dark);
             color: #ffffff;
         }
 
@@ -303,17 +335,17 @@
             padding: 12px;
             font-weight: 600;
             font-size: 14px;
-            border: 1px solid #2c5282;
+            border: 1px solid var(--ne-gold);
         }
 
         td {
             padding: 12px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid var(--ne-border-light);
             font-size: 14px;
         }
 
         tbody tr:nth-child(even) {
-            background: #f7fafc;
+            background: var(--ne-bg-alt);
         }
 
         tbody tr:hover {
@@ -322,8 +354,8 @@
 
         .url-cell {
             font-family: 'Courier New', monospace;
-            font-size: 13px;
-            color: #3182ce;
+            font-size: 14px;
+            color: #000000;
             word-break: break-all;
         }
         .text-red { color: #c53030; }
@@ -354,7 +386,7 @@
         .remediation-steps li {
             padding: 6px 0 6px 24px;
             position: relative;
-            color: #2d3748;
+            color: var(--ne-text);
             font-size: 14px;
         }
 
@@ -376,13 +408,13 @@
 
         .analysis-card {
             background: #ffffff;
-            border: 1px solid #e2e8f0;
+            border: 1px solid var(--ne-border-light);
             padding: 20px;
         }
 
         .analysis-card h3 {
             margin-top: 0;
-            color: #1a365d;
+            color: var(--ne-dark);
             font-size: 16px;
             margin-bottom: 16px;
         }
@@ -391,7 +423,7 @@
             display: flex;
             justify-content: space-between;
             padding: 8px 0;
-            border-bottom: 1px solid #e2e8f0;
+            border-bottom: 1px solid var(--ne-border-light);
         }
 
         .metric-row:last-child {
@@ -399,27 +431,27 @@
         }
 
         .metric-label {
-            color: #718096;
+            color: var(--ne-text-secondary);
             font-size: 14px;
         }
 
         .metric-value {
             font-weight: 600;
-            color: #2d3748;
+            color: var(--ne-text);
             font-size: 14px;
         }
 
         .score-display {
             font-size: 48px;
             font-weight: 700;
-            color: #1a365d;
+            color: var(--ne-dark);
             text-align: center;
             margin: 20px 0;
         }
 
         .score-label {
             text-align: center;
-            color: #718096;
+            color: var(--ne-text-secondary);
             font-size: 14px;
             text-transform: uppercase;
             letter-spacing: 1px;
@@ -466,8 +498,8 @@
 
         /* AI Recommendations */
         .recommendations-text {
-            background: #f7fafc;
-            border: 1px solid #e2e8f0;
+            background: var(--ne-bg-alt);
+            border: 1px solid var(--ne-border-light);
             padding: 24px;
             line-height: 1.8;
             font-size: 14px;
@@ -475,16 +507,16 @@
 
         .recommendations-text h1 {
             font-size: 28px;
-            color: #1a365d;
+            color: var(--ne-dark);
             margin-top: 32px;
             margin-bottom: 16px;
-            border-bottom: 2px solid #2c5282;
+            border-bottom: 2px solid var(--ne-gold);
             padding-bottom: 8px;
         }
 
         .recommendations-text h2 {
             font-size: 22px;
-            color: #1a365d;
+            color: var(--ne-dark);
             margin-top: 28px;
             margin-bottom: 14px;
             border-bottom: 1px solid #cbd5e0;
@@ -493,7 +525,7 @@
 
         .recommendations-text h3 {
             font-size: 18px;
-            color: #2d3748;
+            color: var(--ne-text);
             margin-top: 20px;
             margin-bottom: 10px;
         }
@@ -505,25 +537,26 @@
 
         .recommendations-text li {
             margin-bottom: 8px;
-            color: #2d3748;
+            color: var(--ne-text);
         }
 
         .recommendations-text p {
             margin-bottom: 12px;
-            color: #4a5568;
+            color: var(--ne-text);
         }
 
         .recommendations-text strong {
-            color: #1a365d;
+            color: var(--ne-dark);
             font-weight: 600;
         }
 
         .recommendations-text code {
             background: #edf2f7;
             padding: 2px 6px;
-            border-radius: 3px;
+            border-radius: 0;
             font-family: 'Courier New', monospace;
-            font-size: 13px;
+            font-size: 14px;
+            color: #000000;
         }
 
         .recommendations-text hr {
@@ -536,10 +569,10 @@
         footer {
             text-align: center;
             padding: 20px;
-            color: #718096;
+            color: var(--ne-text-secondary);
             font-size: 14px;
             background: #edf2f7;
-            border-top: 1px solid #e2e8f0;
+            border-top: 1px solid var(--ne-border-light);
             margin-top: 40px;
         }
 
@@ -580,7 +613,7 @@
         }
         .psi-modal {
             background: #fff;
-            border-radius: 8px;
+            border-radius: 0;
             max-width: 900px;
             width: 100%;
             max-height: calc(100vh - 80px);
@@ -588,10 +621,10 @@
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
         }
         .psi-modal-header {
-            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+            background: linear-gradient(135deg, var(--ne-dark) 0%, var(--ne-gold) 100%);
             color: white;
             padding: 20px 24px;
-            border-radius: 8px 8px 0 0;
+            border-radius: 0 8px 0 0;
             position: sticky;
             top: 0;
             z-index: 1;
@@ -646,8 +679,8 @@
             .psi-scores-grid { grid-template-columns: repeat(2, 1fr); }
         }
         .psi-score-card {
-            background: #f7fafc;
-            border-radius: 8px;
+            background: var(--ne-bg-alt);
+            border-radius: 0;
             padding: 16px;
             text-align: center;
         }
@@ -676,7 +709,7 @@
         .psi-metric {
             padding: 12px;
             background: #f9fafb;
-            border-radius: 6px;
+            border-radius: 0;
             text-align: center;
         }
         .psi-metric .label {
@@ -730,7 +763,7 @@
         .psi-fresh-link {
             display: inline-block;
             margin-top: 16px;
-            color: #3182ce;
+            color: var(--ne-gold);
             text-decoration: none;
             font-size: 14px;
         }
@@ -740,7 +773,7 @@
         .psi-badge {
             display: inline-block;
             padding: 2px 8px;
-            border-radius: 4px;
+            border-radius: 0;
             font-size: 11px;
             font-weight: 600;
         }
@@ -751,9 +784,25 @@
 </head>
 <body>
     <header>
-        <div class="container-inner">
-            <h1>SEO Analysis Report</h1>
-            <p class="subtitle">{{ domain }} • Analyzed on {{ crawled_at }}</p>
+        <div class="container-inner" style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <!-- NE Logo - Gold default, white on hover -->
+                <a href="https://newelevation.com" target="_blank" class="ne-logo-link" title="New Elevation">
+                    <svg class="ne-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 289.96 87.88" width="120" height="36" role="img" aria-labelledby="neLogoTitle">
+                        <title id="neLogoTitle">New Elevation</title>
+                        <path d="M115.51 11.21v15.85h-.11l-12.35-12.18h-.09v11.91h-1.02V10.94h.11l12.35 12.18h.09V11.21h1.02Zm23.19 0v1.22h-8.04v5.59h6.9v1.02h-6.9v6.52h8.04v1.22h-10.06V11.2h10.06Zm11.18 0 4.59 12.93h.09l4.43-12.93h.96l4.34 13h.09l4.61-13h1.02l-5.52 15.58h-1.31l-4.12-12.18h-.11l-4.25 12.18h-1.34l-5.52-15.58h2.05Zm-37.89 26.72v1.22h-8.04v5.59h6.9v1.02h-6.9v6.52h8.04v1.22h-10.06V37.92h10.06Zm11.13 15.58V37.93h2.03v14.36h8.04v1.22h-10.06Zm31.26-15.58v1.22h-8.04v5.59h6.9v1.02h-6.9v6.52h8.04v1.22h-10.06V37.92h10.06Zm11.53 0 5.34 12.82h.09l5.19-12.82h1.16l-6.32 15.58h-1.34l-6.52-15.58h2.4Zm21.88 10.99-1.96 4.59h-1.02l6.59-15.58h1.11l7.26 15.58h-2.16l-2.14-4.59h-7.68Zm3.72-8.5h-.09l-3.21 7.5H195l-3.5-7.5Zm20.45 13.09V39.15h-5.97v-1.22h13.96v1.22h-5.96v14.36h-2.03Zm21.82-15.58v15.58h-2.03V37.93h2.03Zm12.94 5.09c.32-.95.82-1.82 1.5-2.62.68-.79 1.55-1.45 2.6-1.97s2.32-.78 3.79-.78 2.77.26 3.86.79c1.09.53 1.99 1.19 2.71 1.99.71.8 1.24 1.67 1.58 2.62.34.94.51 1.83.51 2.66 0 .55-.08 1.13-.23 1.74s-.39 1.21-.69 1.81c-.3.6-.7 1.17-1.17 1.71s-1.04 1.02-1.68 1.44c-.65.42-1.37.75-2.18.99s-1.71.37-2.71.37c-1.47 0-2.73-.26-3.79-.79-1.05-.53-1.92-1.19-2.6-1.99-.68-.8-1.18-1.67-1.5-2.62-.32-.94-.48-1.83-.48-2.66s.16-1.74.48-2.69Zm2.19 5.56c.32.87.76 1.61 1.31 2.24.56.62 1.21 1.11 1.97 1.46.76.35 1.58.52 2.47.52s1.7-.17 2.48-.52 1.46-.83 2.05-1.46c.59-.62 1.05-1.37 1.39-2.24.34-.87.51-1.82.51-2.86s-.17-1.99-.51-2.86c-.34-.87-.81-1.61-1.39-2.24-.59-.62-1.27-1.11-2.05-1.46s-1.61-.52-2.48-.52-1.71.17-2.47.52c-.76.35-1.41.83-1.97 1.46-.56.62-.99 1.37-1.31 2.24-.32.87-.48 1.82-.48 2.86s.16 1.99.48 2.86Zm39.52-10.65v15.85h-.11L275.97 41.6h-.09v11.91h-1.02V37.66h.11l12.35 12.18h.09V37.93h1.02ZM20.89 66.77a693.393 693.393 0 0 0 46.09-46.09 695.798 695.798 0 0 0-46.09 46.09Zm3.34-39.57h.09L35.7 39.33h.11V23.54h-1.02V35.4h-.09L23.32 23.28h-.11v15.78h1.02V27.2zM54.3 64.62h10.25V63.4h-8.23v-6.5h7.1v-1.02h-7.1v-5.57h8.23v-1.22H54.3v15.53z" fill="#967847"/>
+                        <path d="M43.94 0C19.67 0 0 19.67 0 43.94c0 24.27 19.67 43.94 43.94 43.94 24.27 0 43.94-19.67 43.94-43.94C87.88 19.67 68.2 0 43.94 0Zm30.03 73.97c-7.69 7.69-18.3 12.44-30.03 12.44S21.6 81.66 13.91 73.97C6.22 66.28 1.47 55.67 1.47 43.94S6.22 21.6 13.91 13.91C21.6 6.22 32.21 1.47 43.94 1.47s22.34 4.75 30.03 12.44c7.69 7.69 12.44 18.3 12.44 30.03s-4.75 22.34-12.44 30.03Z" fill="#967847"/>
+                    </svg>
+                </a>
+                <div>
+                    <h1 style="margin: 0; font-size: 24px;">SEO Analysis Report</h1>
+                    <p class="subtitle" style="margin: 0;">{{ domain }}</p>
+                </div>
+            </div>
+            <div style="text-align: right; font-size: 14px; color: #999;">
+                <div>Analyzed on</div>
+                <div style="color: #fff;">{{ crawled_at }}</div>
+            </div>
         </div>
     </header>
 
@@ -964,11 +1013,11 @@
                         {% for category, techs in technology_analysis.by_category.items() %}
                         <div style="margin-bottom: 1rem;">
                             <strong>{{ category }}:</strong>
-                            <span style="color: #718096;">{{ techs|join(', ') }}</span>
+                            <span style="color: var(--ne-text-secondary);">{{ techs|join(', ') }}</span>
                         </div>
                         {% endfor %}
                     {% else %}
-                    <p style="color: #718096;">No technologies detected</p>
+                    <p style="color: var(--ne-text-secondary);">No technologies detected</p>
                     {% endif %}
                 </div>
 
@@ -1041,7 +1090,7 @@
                             </tbody>
                         </table>
                         {% if pattern.count > 5 %}
-                        <p style="font-size: 13px; color: #718096; margin-top: 8px;">
+                        <p style="font-size: 13px; color: var(--ne-text-secondary); margin-top: 8px;">
                             ...and {{ pattern.count - 5 }} more pages with this issue
                         </p>
                         {% endif %}
@@ -1172,7 +1221,7 @@
                         <h3>Average Readability</h3>
                         <div class="score-display">{{ content_quality.avg_readability|round(1) }}</div>
                         <div class="score-label">Flesch Reading Ease</div>
-                        <p style="margin-top: 16px; color: #718096; font-size: 14px; text-align: center;">
+                        <p style="margin-top: 16px; color: var(--ne-text-secondary); font-size: 14px; text-align: center;">
                             {{ content_quality.avg_grade }}
                         </p>
                     </div>
@@ -1243,7 +1292,7 @@
                 </div>
                 {% endif %}
                 {% else %}
-                <p style="color: #718096;">Content quality analysis not available for this crawl.</p>
+                <p style="color: var(--ne-text-secondary);">Content quality analysis not available for this crawl.</p>
                 {% endif %}
             </div>
 
@@ -1258,11 +1307,11 @@
                 <div class="analysis-grid">
                     <div class="analysis-card">
                         <h3>Structured Data Score</h3>
-                        <div class="score-display" style="{% if sd_analysis.overall_status == 'excellent' %}color: #2f855a;{% elif sd_analysis.overall_status == 'good' %}color: #3182ce;{% elif sd_analysis.overall_status == 'needs-improvement' %}color: #ed8936;{% else %}color: #c53030;{% endif %}">
+                        <div class="score-display" style="{% if sd_analysis.overall_status == 'excellent' %}color: #2f855a;{% elif sd_analysis.overall_status == 'good' %}color: var(--ne-gold);{% elif sd_analysis.overall_status == 'needs-improvement' %}color: #ed8936;{% else %}color: #c53030;{% endif %}">
                             {{ sd_analysis.avg_score|round(0) }}
                         </div>
                         <div class="score-label">{{ sd_analysis.overall_status|upper }}</div>
-                        <p style="margin-top: 12px; color: #718096; font-size: 14px; text-align: center;">
+                        <p style="margin-top: 12px; color: var(--ne-text-secondary); font-size: 14px; text-align: center;">
                             {{ sd_analysis.pages_with_schema_count }}/{{ sd_analysis.total_pages }} pages have schema
                         </p>
                     </div>
@@ -1304,7 +1353,7 @@
                 <h3>Schema Types Found</h3>
                 <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px;">
                     {% for schema_type in sd_analysis.schema_types %}
-                    <span style="background: #3182ce; color: white; padding: 6px 12px; border-radius: 4px; font-size: 13px; font-weight: 500;">
+                    <span style="background: var(--ne-gold); color: white; padding: 6px 12px; border-radius: 0; font-size: 13px; font-weight: 500;">
                         {{ schema_type }}
                     </span>
                     {% endfor %}
@@ -1325,7 +1374,7 @@
                         <tr>
                             <td style="text-transform: capitalize;">{{ result_type.replace('_', ' ') }}</td>
                             <td>{{ count }}/{{ sd_analysis.total_pages }}</td>
-                            <td style="{% if count > 0 %}color: #2f855a; font-weight: 600;{% else %}color: #718096;{% endif %}">
+                            <td style="{% if count > 0 %}color: #2f855a; font-weight: 600;{% else %}color: var(--ne-text-secondary);{% endif %}">
                                 {% if count > 0 %}✓ ELIGIBLE{% else %}Not Eligible{% endif %}
                             </td>
                         </tr>
@@ -1370,12 +1419,12 @@
                         <li>Use Organization schema on your homepage with logo and social profiles</li>
                         <li>Add Article/BlogPosting schema to blog posts with author and publisher</li>
                         <li>Include Review and AggregateRating schema for user reviews</li>
-                        <li>Test your structured data with <a href="https://search.google.com/test/rich-results" target="_blank" style="color: #3182ce;">Google's Rich Results Test</a></li>
-                        <li>Validate schema markup with <a href="https://validator.schema.org/" target="_blank" style="color: #3182ce;">Schema.org Validator</a></li>
+                        <li>Test your structured data with <a href="https://search.google.com/test/rich-results" target="_blank" style="color: var(--ne-gold);">Google's Rich Results Test</a></li>
+                        <li>Validate schema markup with <a href="https://validator.schema.org/" target="_blank" style="color: var(--ne-gold);">Schema.org Validator</a></li>
                     </ul>
                 </div>
                 {% else %}
-                <p style="color: #718096;">Structured data analysis not available for this crawl.</p>
+                <p style="color: var(--ne-text-secondary);">Structured data analysis not available for this crawl.</p>
                 {% endif %}
             </div>
 
@@ -1427,7 +1476,7 @@
                         </ul>
                         {% endif %}
                         {% if not security_analysis.complete_headers and not security_analysis.partial_headers and not security_analysis.missing_headers %}
-                        <p style="color: #718096;">No security header data available</p>
+                        <p style="color: var(--ne-text-secondary);">No security header data available</p>
                         {% endif %}
                     </div>
                 </div>
@@ -1471,7 +1520,7 @@
                     <div class="analysis-card">
                         <h4 style="margin-bottom: 12px;">Transport Security</h4>
                         <ul style="list-style: none; padding: 0; margin: 0;">
-                            <li style="padding: 6px 0; border-bottom: 1px solid #e2e8f0;">
+                            <li style="padding: 6px 0; border-bottom: 1px solid var(--ne-border-light);">
                                 {% if security_analysis.https_count == security_analysis.total_pages %}
                                 <span style="color: #22543d;">✓</span>
                                 {% else %}
@@ -1479,7 +1528,7 @@
                                 {% endif %}
                                 All pages use HTTPS
                             </li>
-                            <li style="padding: 6px 0; border-bottom: 1px solid #e2e8f0;">
+                            <li style="padding: 6px 0; border-bottom: 1px solid var(--ne-border-light);">
                                 {% if 'strict-transport-security' in security_analysis.complete_headers|default([]) %}
                                 <span style="color: #22543d;">✓</span>
                                 {% else %}
@@ -1500,7 +1549,7 @@
                     <div class="analysis-card">
                         <h4 style="margin-bottom: 12px;">Content Security</h4>
                         <ul style="list-style: none; padding: 0; margin: 0;">
-                            <li style="padding: 6px 0; border-bottom: 1px solid #e2e8f0;">
+                            <li style="padding: 6px 0; border-bottom: 1px solid var(--ne-border-light);">
                                 {% if 'content-security-policy' in security_analysis.complete_headers|default([]) %}
                                 <span style="color: #22543d;">✓</span>
                                 {% else %}
@@ -1508,7 +1557,7 @@
                                 {% endif %}
                                 Content Security Policy
                             </li>
-                            <li style="padding: 6px 0; border-bottom: 1px solid #e2e8f0;">
+                            <li style="padding: 6px 0; border-bottom: 1px solid var(--ne-border-light);">
                                 {% if 'x-content-type-options' in security_analysis.complete_headers|default([]) %}
                                 <span style="color: #22543d;">✓</span>
                                 {% else %}
@@ -1637,7 +1686,7 @@
                 <div class="analysis-grid">
                     <div class="analysis-card">
                         <h3>Crawlability Score</h3>
-                        <div class="score-display" style="{% if crawlability_analysis.overall_score >= 80 %}color: #2f855a;{% elif crawlability_analysis.overall_score >= 60 %}color: #3182ce;{% elif crawlability_analysis.overall_score >= 40 %}color: #ed8936;{% else %}color: #c53030;{% endif %}">
+                        <div class="score-display" style="{% if crawlability_analysis.overall_score >= 80 %}color: #2f855a;{% elif crawlability_analysis.overall_score >= 60 %}color: var(--ne-gold);{% elif crawlability_analysis.overall_score >= 40 %}color: #ed8936;{% else %}color: #c53030;{% endif %}">
                             {{ crawlability_analysis.overall_score }}
                         </div>
                         <div class="score-label">Overall Crawlability</div>
@@ -1715,7 +1764,7 @@
                 </div>
                 {% endif %}
                 {% else %}
-                <p style="color: #718096;">Crawlability analysis not available for this crawl.</p>
+                <p style="color: var(--ne-text-secondary);">Crawlability analysis not available for this crawl.</p>
                 {% endif %}
             </div>
 
@@ -1804,7 +1853,7 @@
                             {% if cwv_analysis.lcp_status == 'good' %}✓{% elif cwv_analysis.lcp_status == 'needs-improvement' %}⚠{% else %}✗{% endif %}
                         </div>
                         {% if cwv_analysis.avg_lcp_estimate %}
-                        <p style="color: #718096; font-size: 13px; text-align: center;">{{ cwv_analysis.avg_lcp_estimate|round(2) }}s avg</p>
+                        <p style="color: var(--ne-text-secondary); font-size: 13px; text-align: center;">{{ cwv_analysis.avg_lcp_estimate|round(2) }}s avg</p>
                         {% endif %}
                     </div>
                     <div class="analysis-card">
@@ -1812,14 +1861,14 @@
                         <div class="score-display" style="font-size: 32px; {% if cwv_analysis.inp_status == 'good' %}color: #2f855a;{% elif cwv_analysis.inp_status == 'needs-improvement' %}color: #ed8936;{% else %}color: #c53030;{% endif %}">
                             {% if cwv_analysis.inp_status == 'good' %}✓{% elif cwv_analysis.inp_status == 'needs-improvement' %}⚠{% else %}✗{% endif %}
                         </div>
-                        <p style="color: #718096; font-size: 13px; text-align: center;">{{ cwv_analysis.total_blocking_scripts }} blocking scripts</p>
+                        <p style="color: var(--ne-text-secondary); font-size: 13px; text-align: center;">{{ cwv_analysis.total_blocking_scripts }} blocking scripts</p>
                     </div>
                     <div class="analysis-card">
                         <h4>CLS - Stability</h4>
                         <div class="score-display" style="font-size: 32px; {% if cwv_analysis.cls_status == 'good' %}color: #2f855a;{% elif cwv_analysis.cls_status == 'needs-improvement' %}color: #ed8936;{% else %}color: #c53030;{% endif %}">
                             {% if cwv_analysis.cls_status == 'good' %}✓{% elif cwv_analysis.cls_status == 'needs-improvement' %}⚠{% else %}✗{% endif %}
                         </div>
-                        <p style="color: #718096; font-size: 13px; text-align: center;">{{ cwv_analysis.total_cls_risks }} CLS risks</p>
+                        <p style="color: var(--ne-text-secondary); font-size: 13px; text-align: center;">{{ cwv_analysis.total_cls_risks }} CLS risks</p>
                     </div>
                 </div>
 
@@ -1851,7 +1900,7 @@
                 <!-- Lighthouse Analysis -->
                 {% if lighthouse_analysis and lighthouse_analysis.enabled %}
                 <h3 style="margin-top: 32px;">Lighthouse Scores</h3>
-                <p style="color: #718096; font-size: 14px; margin-bottom: 16px;">{{ lighthouse_analysis.pages_audited }} of {{ lighthouse_analysis.total_pages }} pages analyzed</p>
+                <p style="color: var(--ne-text-secondary); font-size: 14px; margin-bottom: 16px;">{{ lighthouse_analysis.pages_audited }} of {{ lighthouse_analysis.total_pages }} pages analyzed</p>
 
                 <div class="analysis-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;">
                     <div class="analysis-card" style="text-align: center;">
@@ -1953,7 +2002,7 @@
                     <div class="stat-card">
                         <div class="stat-value">{{ performance_statistics.stats.performance_score.avg|round(0)|int }}</div>
                         <div class="stat-label">Avg Performance</div>
-                        <div style="font-size: 12px; color: #718096; margin-top: 4px;">
+                        <div style="font-size: 12px; color: var(--ne-text-secondary); margin-top: 4px;">
                             Median: {{ performance_statistics.stats.performance_score.median|round(0)|int }} |
                             P90: {{ performance_statistics.stats.performance_score.p90|round(0)|int }}
                         </div>
@@ -1963,7 +2012,7 @@
                     <div class="stat-card">
                         <div class="stat-value">{{ performance_statistics.stats.accessibility_score.avg|round(0)|int }}</div>
                         <div class="stat-label">Avg Accessibility</div>
-                        <div style="font-size: 12px; color: #718096; margin-top: 4px;">
+                        <div style="font-size: 12px; color: var(--ne-text-secondary); margin-top: 4px;">
                             Median: {{ performance_statistics.stats.accessibility_score.median|round(0)|int }} |
                             P90: {{ performance_statistics.stats.accessibility_score.p90|round(0)|int }}
                         </div>
@@ -1973,7 +2022,7 @@
                     <div class="stat-card">
                         <div class="stat-value">{{ performance_statistics.stats.best_practices_score.avg|round(0)|int }}</div>
                         <div class="stat-label">Avg Best Practices</div>
-                        <div style="font-size: 12px; color: #718096; margin-top: 4px;">
+                        <div style="font-size: 12px; color: var(--ne-text-secondary); margin-top: 4px;">
                             Median: {{ performance_statistics.stats.best_practices_score.median|round(0)|int }} |
                             P90: {{ performance_statistics.stats.best_practices_score.p90|round(0)|int }}
                         </div>
@@ -1983,7 +2032,7 @@
                     <div class="stat-card">
                         <div class="stat-value">{{ performance_statistics.stats.seo_score.avg|round(0)|int }}</div>
                         <div class="stat-label">Avg SEO Score</div>
-                        <div style="font-size: 12px; color: #718096; margin-top: 4px;">
+                        <div style="font-size: 12px; color: var(--ne-text-secondary); margin-top: 4px;">
                             Median: {{ performance_statistics.stats.seo_score.median|round(0)|int }} |
                             P90: {{ performance_statistics.stats.seo_score.p90|round(0)|int }}
                         </div>
@@ -1998,7 +2047,7 @@
                     <div class="stat-card">
                         <div class="stat-value">{{ (performance_statistics.stats.lcp.avg / 1000)|round(2) }}s</div>
                         <div class="stat-label">Avg LCP</div>
-                        <div style="font-size: 12px; color: #718096; margin-top: 4px;">
+                        <div style="font-size: 12px; color: var(--ne-text-secondary); margin-top: 4px;">
                             Median: {{ (performance_statistics.stats.lcp.median / 1000)|round(2) }}s |
                             P90: {{ (performance_statistics.stats.lcp.p90 / 1000)|round(2) }}s
                         </div>
@@ -2011,7 +2060,7 @@
                     <div class="stat-card">
                         <div class="stat-value">{{ performance_statistics.stats.cls.avg|round(3) }}</div>
                         <div class="stat-label">Avg CLS</div>
-                        <div style="font-size: 12px; color: #718096; margin-top: 4px;">
+                        <div style="font-size: 12px; color: var(--ne-text-secondary); margin-top: 4px;">
                             Median: {{ performance_statistics.stats.cls.median|round(3) }} |
                             P90: {{ performance_statistics.stats.cls.p90|round(3) }}
                         </div>
@@ -2024,7 +2073,7 @@
                     <div class="stat-card">
                         <div class="stat-value">{{ performance_statistics.stats.tbt.avg|round(0)|int }}ms</div>
                         <div class="stat-label">Avg TBT</div>
-                        <div style="font-size: 12px; color: #718096; margin-top: 4px;">
+                        <div style="font-size: 12px; color: var(--ne-text-secondary); margin-top: 4px;">
                             Median: {{ performance_statistics.stats.tbt.median|round(0)|int }}ms |
                             P90: {{ performance_statistics.stats.tbt.p90|round(0)|int }}ms
                         </div>
@@ -2037,7 +2086,7 @@
                     <div class="stat-card">
                         <div class="stat-value">{{ (performance_statistics.stats.fcp.avg / 1000)|round(2) }}s</div>
                         <div class="stat-label">Avg FCP</div>
-                        <div style="font-size: 12px; color: #718096; margin-top: 4px;">
+                        <div style="font-size: 12px; color: var(--ne-text-secondary); margin-top: 4px;">
                             Median: {{ (performance_statistics.stats.fcp.median / 1000)|round(2) }}s |
                             P90: {{ (performance_statistics.stats.fcp.p90 / 1000)|round(2) }}s
                         </div>
@@ -2057,12 +2106,12 @@
                 </div>
                 <div style="margin-bottom: 16px;">
                     <input type="text" id="perfTableFilter" placeholder="Filter by title..."
-                           style="padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 4px; width: 300px;"
+                           style="padding: 8px 12px; border: 1px solid var(--ne-border-light); border-radius: 0; width: 300px;"
                            oninput="filterPerfTable(this.value)">
                 </div>
                 <div style="overflow-x: auto;">
                     <table id="perfTable" style="width: 100%; border-collapse: collapse;">
-                        <thead style="background: #1a365d; color: #fff;">
+                        <thead style="background: var(--ne-dark); color: #fff;">
                             <tr>
                                 <th style="padding: 12px; text-align: left; cursor: pointer;" onclick="sortPerfTable(0)">Title <span class="sort-arrow">&#x25B2;&#x25BC;</span></th>
                                 <th style="padding: 12px; text-align: center; cursor: pointer; width: 80px;" onclick="sortPerfTable(1)">Perf <span class="sort-arrow">&#x25B2;&#x25BC;</span></th>
@@ -2077,15 +2126,15 @@
                         </thead>
                         <tbody>
                             {% for page in performance_statistics.pages %}
-                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                            <tr style="border-bottom: 1px solid var(--ne-border-light);">
                                 <td style="padding: 12px;">
-                                    <a href="{{ page.url }}" target="_blank" style="color: #2c5282; text-decoration: none;">
+                                    <a href="{{ page.url }}" target="_blank" style="color: var(--ne-gold); text-decoration: none;">
                                         {{ page.title|truncate(60) }}
                                     </a>
                                 </td>
                                 <td style="padding: 12px; text-align: center;">
                                     {% if page.performance_score %}
-                                    <span style="display: inline-block; padding: 4px 8px; border-radius: 4px; font-weight: 600;
+                                    <span style="display: inline-block; padding: 4px 8px; border-radius: 0; font-weight: 600;
                                         {% if page.performance_score >= 90 %}background: #c6f6d5; color: #22543d;
                                         {% elif page.performance_score >= 50 %}background: #fefcbf; color: #744210;
                                         {% else %}background: #fed7d7; color: #822727;{% endif %}">
@@ -2095,7 +2144,7 @@
                                 </td>
                                 <td style="padding: 12px; text-align: center;">
                                     {% if page.accessibility_score %}
-                                    <span style="display: inline-block; padding: 4px 8px; border-radius: 4px; font-weight: 600;
+                                    <span style="display: inline-block; padding: 4px 8px; border-radius: 0; font-weight: 600;
                                         {% if page.accessibility_score >= 90 %}background: #c6f6d5; color: #22543d;
                                         {% elif page.accessibility_score >= 50 %}background: #fefcbf; color: #744210;
                                         {% else %}background: #fed7d7; color: #822727;{% endif %}">
@@ -2105,7 +2154,7 @@
                                 </td>
                                 <td style="padding: 12px; text-align: center;">
                                     {% if page.best_practices_score %}
-                                    <span style="display: inline-block; padding: 4px 8px; border-radius: 4px; font-weight: 600;
+                                    <span style="display: inline-block; padding: 4px 8px; border-radius: 0; font-weight: 600;
                                         {% if page.best_practices_score >= 90 %}background: #c6f6d5; color: #22543d;
                                         {% elif page.best_practices_score >= 50 %}background: #fefcbf; color: #744210;
                                         {% else %}background: #fed7d7; color: #822727;{% endif %}">
@@ -2115,7 +2164,7 @@
                                 </td>
                                 <td style="padding: 12px; text-align: center;">
                                     {% if page.seo_score %}
-                                    <span style="display: inline-block; padding: 4px 8px; border-radius: 4px; font-weight: 600;
+                                    <span style="display: inline-block; padding: 4px 8px; border-radius: 0; font-weight: 600;
                                         {% if page.seo_score >= 90 %}background: #c6f6d5; color: #22543d;
                                         {% elif page.seo_score >= 50 %}background: #fefcbf; color: #744210;
                                         {% else %}background: #fed7d7; color: #822727;{% endif %}">
@@ -2145,7 +2194,7 @@
                 </div>
                 {% else %}
                 <div class="analysis-card">
-                    <p style="color: #718096; text-align: center; padding: 40px;">
+                    <p style="color: var(--ne-text-secondary); text-align: center; padding: 40px;">
                         No PageSpeed Insights data available. Run the crawler with PSI enabled to see performance statistics.
                     </p>
                 </div>
@@ -2226,14 +2275,14 @@
                 <div style="margin-bottom: 16px;">
                     <input type="text" id="pageMatrixSearch" placeholder="Filter by URL or title..."
                            oninput="filterPageMatrix(this.value)"
-                           style="width: 300px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                           style="width: 300px; padding: 8px 12px; border: 1px solid var(--ne-border-light); border-radius: 0; font-size: 14px;">
                 </div>
 
                 <!-- Page Matrix Table -->
                 <div style="overflow-x: auto;">
                     <table id="pageMatrixTable" style="width: 100%; border-collapse: collapse; font-size: 13px;">
                         <thead>
-                            <tr style="background: #f7fafc;">
+                            <tr style="background: var(--ne-dark); color: #ffffff;">
                                 <th style="padding: 10px; text-align: left; cursor: pointer; min-width: 250px;" onclick="sortTable('pageMatrixTable', 0, 'matrix')">
                                     Page <span class="sort-arrow" style="font-size: 10px; opacity: 0.4;">&#x25B2;&#x25BC;</span>
                                 </th>
@@ -2261,15 +2310,15 @@
                         </thead>
                         <tbody>
                             {% for page in page_matrix.pages %}
-                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                            <tr style="border-bottom: 1px solid var(--ne-border-light);">
                                 <td style="padding: 10px;">
-                                    <a href="{{ page.url }}" target="_blank" rel="noopener" style="color: #3182ce; text-decoration: none; display: block;">
+                                    <a href="{{ page.url }}" target="_blank" rel="noopener" style="color: var(--ne-gold); text-decoration: none; display: block;">
                                         <div style="font-weight: 500; margin-bottom: 2px;">{{ page.title }}</div>
-                                        <div style="font-size: 11px; color: #718096; word-break: break-all;">{{ page.url }}</div>
+                                        <div style="font-size: 11px; color: var(--ne-text-secondary); word-break: break-all;">{{ page.url }}</div>
                                     </a>
                                 </td>
                                 <td style="padding: 10px; text-align: center;">
-                                    <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 12px;
+                                    <span style="display: inline-block; padding: 2px 8px; border-radius: 0; font-weight: 600; font-size: 12px;
                                         {% if page.health_score >= 80 %}background: #c6f6d5; color: #22543d;
                                         {% elif page.health_score >= 50 %}background: #fefcbf; color: #744210;
                                         {% else %}background: #fed7d7; color: #822727;{% endif %}">
@@ -2307,7 +2356,7 @@
                                     {% if page.issues %}
                                     <div style="display: flex; flex-wrap: wrap; gap: 4px;">
                                         {% for issue in page.issues %}
-                                        <span style="display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 500;
+                                        <span style="display: inline-block; padding: 2px 6px; border-radius: 0; font-size: 10px; font-weight: 500;
                                             {% if issue in ['title', 'desc', 'h1', 'perf', 'security'] %}background: #fed7d7; color: #822727;
                                             {% else %}background: #fefcbf; color: #744210;{% endif %}">
                                             {{ issue }}
@@ -2333,7 +2382,7 @@
                 </div>
 
                 <!-- Legend -->
-                <div style="margin-top: 16px; padding: 12px; background: #f7fafc; border-radius: 6px; font-size: 12px; color: #4a5568;">
+                <div style="margin-top: 16px; padding: 12px; background: var(--ne-bg-alt); border-radius: 0; font-size: 12px; color: var(--ne-text);">
                     <strong>Issue codes:</strong>
                     <span style="margin-left: 8px;">title = missing title</span> •
                     <span>desc = missing description</span> •
@@ -2349,7 +2398,7 @@
                 </div>
                 {% else %}
                 <div class="analysis-card">
-                    <p style="color: #718096; text-align: center; padding: 40px;">
+                    <p style="color: var(--ne-text-secondary); text-align: center; padding: 40px;">
                         No page data available.
                     </p>
                 </div>
@@ -3186,5 +3235,21 @@
             <div id="psiModalContent"></div>
         </div>
     </div>
+
+    <!-- NE Footer -->
+    <footer style="background: var(--ne-header-bg); border-top: 3px solid var(--ne-gold); padding: 1.5rem; color: #fff; font-size: 0.875rem; margin-top: 40px;">
+        <div style="max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <svg width="24" height="24" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="100" height="100" fill="#967847"/>
+                    <text x="50" y="62" font-family="Segoe UI, Arial" font-size="32" font-weight="bold" fill="white" text-anchor="middle">NE</text>
+                </svg>
+                <span>SEO Analysis Report for <strong>{{ domain }}</strong></span>
+            </div>
+            <div style="color: #999;">
+                Generated {{ crawled_at }} • Powered by New Elevation
+            </div>
+        </div>
+    </footer>
 </body>
 </html>

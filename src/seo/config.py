@@ -16,6 +16,17 @@ class Settings:
     AHREFS_API_KEY = os.getenv("AHREFS_API_KEY")
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///seo_data.db")  # Default to SQLite
 
+    # Database backend configuration
+    DB_BACKEND = os.getenv("DB_BACKEND", "local")  # 'local' or 'turso'
+    TURSO_DATABASE_URL = os.getenv("TURSO_DATABASE_URL")  # e.g., libsql://your-db.turso.io
+    TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
+
+    # LLM settings (moved from Config for consistency)
+    LLM_API_KEY = os.getenv("LLM_API_KEY")
+    LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4")
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
+    USER_AGENT = os.getenv("USER_AGENT", "SEO-Analyzer-Bot/1.0")
+
 
 settings = Settings()
 

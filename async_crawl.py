@@ -7,7 +7,7 @@ import sys
 import time
 import yaml
 from pathlib import Path
-from seo.async_site_crawler import AsyncSiteCrawler
+from seo.async_site_crawler import AsyncSiteCrawler, WAFBlockedException
 from seo.config import Config
 from seo.logging_config import setup_logging
 from seo.output_manager import OutputManager
@@ -463,9 +463,34 @@ async def main():
         print(f"Starting async crawl of {start_url}...\n")
         start_time = time.time()
 
-        site_data = await crawler.crawl_site(start_url)
+        try:
+            site_data = await crawler.crawl_site(start_url)
+        except WAFBlockedException as e:
+            print(f"\n❌ Crawl failed: {e.message}")
+            print(f"   WAF/CDN Provider: {e.waf_provider}")
+            print(f"   HTTP Status: {e.status_code}")
+            print(f"\n   This site blocks automated crawlers. Consider:")
+            print(f"   - Using a different IP address or VPN")
+            print(f"   - Contacting the site owner for access")
+            print(f"   - Using the site's official API if available")
+            sys.exit(1)
 
         elapsed = time.time() - start_time
+
+    # Check if we got any pages
+    if not site_data:
+        print("\n" + "=" * 60)
+        print("❌ NO PAGES CRAWLED")
+        print("=" * 60)
+        print("The crawl completed but no pages were successfully retrieved.")
+        print("Possible reasons:")
+        print("  - Site is blocking automated requests")
+        print("  - Network connectivity issues")
+        print("  - Invalid URL or site is down")
+        print("  - robots.txt is blocking all paths")
+        print("\nNo report will be generated.")
+        print("=" * 60)
+        sys.exit(1)
 
     crawl_stats = {
         "total_pages": len(site_data),
@@ -491,10 +516,30 @@ async def main():
         InternationalSEOAnalyzer,
         TechnologyAnalyzer,
     )
+    from seo.crawlability import CrawlabilityAnalyzer
 
     # Technical analysis
     technical_analyzer = TechnicalAnalyzer()
-    technical_issues = technical_analyzer.analyze(site_data)
+    technical_issues, _ = technical_analyzer.analyze(site_data)
+
+    # Crawlability analysis
+    crawlability_analyzer = CrawlabilityAnalyzer(
+        base_url=start_url,
+        robots_txt_content=crawler.robots_txt_content if hasattr(crawler, 'robots_txt_content') else None,
+    )
+    crawled_urls = list(site_data.keys())
+    all_discovered_urls = set(crawled_urls)
+    # Add URLs from links as discovered URLs
+    for page in site_data.values():
+        if page.links:
+            all_discovered_urls.update(page.links)
+    # Get broken links from technical issues
+    broken_links = [url for url, _ in technical_issues.broken_links] if technical_issues.broken_links else []
+    crawlability_score = crawlability_analyzer.analyze(
+        crawled_urls=crawled_urls,
+        all_discovered_urls=all_discovered_urls,
+        broken_links=broken_links,
+    )
 
     # Advanced analyzers
     content_analyzer = ContentQualityAnalyzer()
@@ -504,34 +549,40 @@ async def main():
     international_analyzer = InternationalSEOAnalyzer()
     technology_analyzer = TechnologyAnalyzer()
 
+    # Get crawlability recommendations
+    crawlability_recommendations = crawlability_analyzer.get_recommendations(crawlability_score)
+    crawlability_data = asdict(crawlability_score)
+    crawlability_data['recommendations'] = crawlability_recommendations
+
     advanced_analysis = {
         'content_quality': [],
         'security': [],
         'url_structure': [],
         'mobile': [],
         'international': [],
+        'crawlability': crawlability_data,
     }
 
     for url, page in site_data.items():
         # Content quality
         if page.content_text:
-            content_metrics = content_analyzer.analyze(url, page.content_text)
+            content_metrics, _ = content_analyzer.analyze(url, page.content_text)
             advanced_analysis['content_quality'].append(asdict(content_metrics))
 
-        # Security
-        security_result = security_analyzer.analyze(url, page, page.security_headers)
+        # Security (returns tuple)
+        security_result, _ = security_analyzer.analyze(url, page, page.security_headers)
         advanced_analysis['security'].append(asdict(security_result))
 
-        # URL structure
-        url_result = url_analyzer.analyze(url)
+        # URL structure (returns tuple)
+        url_result, _ = url_analyzer.analyze(url)
         advanced_analysis['url_structure'].append(asdict(url_result))
 
-        # Mobile
-        mobile_result = mobile_analyzer.analyze(page)
+        # Mobile (returns tuple with dict, not dataclass)
+        mobile_result, _ = mobile_analyzer.analyze(page)
         advanced_analysis['mobile'].append(mobile_result)
 
-        # International
-        intl_result = international_analyzer.analyze(page)
+        # International (returns tuple with dict, not dataclass)
+        intl_result, _ = international_analyzer.analyze(page)
         advanced_analysis['international'].append(intl_result)
 
     # Technology analysis (site-wide)

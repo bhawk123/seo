@@ -2,7 +2,7 @@
 import os
 import pytest
 import sqlite3
-from src.seo.database import MetricsDatabase
+from seo.database import MetricsDatabase
 
 # Define a test database path
 TEST_DB_PATH = "test_seo_data.db"

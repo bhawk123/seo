@@ -10,10 +10,18 @@ Validates and analyzes structured data markup including:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Set
+from datetime import datetime
+from typing import List, Dict, Optional, Set, Tuple
 from bs4 import BeautifulSoup
 import json
 import re
+
+from seo.models import (
+    EvidenceRecord,
+    EvidenceCollection,
+    ConfidenceLevel,
+    EvidenceSourceType,
+)
 
 
 @dataclass
@@ -44,9 +52,17 @@ class StructuredDataScore:
     # Overall score
     overall_score: int = 0  # 0-100
 
+    # Evidence trail
+    evidence: Dict = field(default_factory=dict)
+
 
 class StructuredDataAnalyzer:
     """Analyze structured data markup on web pages."""
+
+    def __init__(self):
+        """Initialize the structured data analyzer."""
+        self._evidence_collection: Optional[EvidenceCollection] = None
+        self._url: str = ""
 
     # Common schema types and their purposes
     SCHEMA_TYPES = {
@@ -96,8 +112,14 @@ class StructuredDataAnalyzer:
             url: Page URL
 
         Returns:
-            StructuredDataScore object with analysis results
+            StructuredDataScore object with analysis results and evidence
         """
+        self._url = url
+        self._evidence_collection = EvidenceCollection(
+            finding='structured_data',
+            component_id='structured_data_analyzer',
+        )
+
         score = StructuredDataScore()
 
         # Extract JSON-LD
@@ -109,17 +131,32 @@ class StructuredDataAnalyzer:
         # Extract RDFa
         self._extract_rdfa(soup, score)
 
+        # Add schema detection evidence
+        self._add_schema_detection_evidence(score)
+
         # Validate schema
         self._validate_schema(score)
 
+        # Add validation evidence
+        self._add_validation_evidence(score)
+
         # Check rich result eligibility
         self._check_rich_results(score)
+
+        # Add rich results evidence
+        self._add_rich_results_evidence(score)
 
         # Identify missing opportunities
         self._identify_missing_opportunities(soup, score, url)
 
         # Calculate overall score
         self._calculate_score(score)
+
+        # Add summary evidence
+        self._add_summary_evidence(score)
+
+        # Attach evidence to score
+        score.evidence = self._evidence_collection.to_dict()
 
         return score
 
@@ -140,9 +177,11 @@ class StructuredDataAnalyzer:
                 self._extract_types_from_jsonld(data, score)
 
             except json.JSONDecodeError as e:
-                score.validation_errors.append(
-                    f"Invalid JSON-LD syntax: {str(e)[:100]}"
-                )
+                error_msg = f"Invalid JSON-LD syntax: {str(e)[:100]}"
+                score.validation_errors.append(error_msg)
+
+                # Add evidence for parse error
+                self._add_parse_error_evidence(error_msg, script.string[:200] if script.string else '')
 
     def _extract_types_from_jsonld(self, data: Dict, score: StructuredDataScore):
         """Recursively extract @type from JSON-LD."""
@@ -661,3 +700,237 @@ class StructuredDataAnalyzer:
             points += 5
 
         score.overall_score = min(points, 100)
+
+    def _add_parse_error_evidence(self, error_msg: str, snippet: str) -> None:
+        """Add evidence for JSON-LD parse error.
+
+        Args:
+            error_msg: The parse error message
+            snippet: Snippet of the problematic JSON-LD
+        """
+        record = EvidenceRecord(
+            component_id='structured_data_analyzer',
+            finding='invalid_json_ld',
+            evidence_string=error_msg,
+            confidence=ConfidenceLevel.HIGH,
+            timestamp=datetime.now(),
+            source='JSON-LD Parser',
+            source_type=EvidenceSourceType.MEASUREMENT,
+            source_location=self._url,
+            measured_value={'error': error_msg, 'snippet': snippet},
+            ai_generated=False,
+            reasoning='JSON-LD could not be parsed due to syntax error',
+        )
+        self._evidence_collection.add_record(record)
+
+    def _add_schema_detection_evidence(self, score: StructuredDataScore) -> None:
+        """Add evidence for schema type detection.
+
+        Args:
+            score: The structured data score object
+        """
+        # Add evidence for each detected schema type
+        for schema_type in score.schema_types:
+            # Find the raw JSON-LD for this type if available
+            raw_jsonld = None
+            for data in score.structured_data:
+                if isinstance(data, dict):
+                    type_val = data.get('@type', '')
+                    if isinstance(type_val, list):
+                        if schema_type in type_val:
+                            raw_jsonld = json.dumps(data, indent=2)[:500]
+                            break
+                    elif type_val == schema_type:
+                        raw_jsonld = json.dumps(data, indent=2)[:500]
+                        break
+
+            record = EvidenceRecord(
+                component_id='structured_data_analyzer',
+                finding='schema_detected',
+                evidence_string=f'{schema_type} schema detected',
+                confidence=ConfidenceLevel.HIGH,
+                timestamp=datetime.now(),
+                source='Structured Data Extraction',
+                source_type=EvidenceSourceType.MEASUREMENT,
+                source_location=self._url,
+                measured_value={
+                    'schema_type': schema_type,
+                    'description': self.SCHEMA_TYPES.get(schema_type, 'Custom schema type'),
+                    'raw_jsonld': raw_jsonld,
+                },
+                ai_generated=False,
+                reasoning=f'Found {schema_type} schema in page markup',
+            )
+            self._evidence_collection.add_record(record)
+
+        # Add format breakdown evidence
+        if score.jsonld_count > 0 or score.microdata_count > 0 or score.rdfa_count > 0:
+            record = EvidenceRecord(
+                component_id='structured_data_analyzer',
+                finding='format_breakdown',
+                evidence_string=f'JSON-LD: {score.jsonld_count}, Microdata: {score.microdata_count}, RDFa: {score.rdfa_count}',
+                confidence=ConfidenceLevel.HIGH,
+                timestamp=datetime.now(),
+                source='Structured Data Extraction',
+                source_type=EvidenceSourceType.MEASUREMENT,
+                source_location=self._url,
+                measured_value={
+                    'jsonld': score.jsonld_count,
+                    'microdata': score.microdata_count,
+                    'rdfa': score.rdfa_count,
+                    'preferred_format': 'JSON-LD',
+                },
+                ai_generated=False,
+                reasoning='Breakdown of structured data formats found on page',
+            )
+            self._evidence_collection.add_record(record)
+
+    def _add_validation_evidence(self, score: StructuredDataScore) -> None:
+        """Add evidence for schema validation results.
+
+        Args:
+            score: The structured data score object
+        """
+        # Add evidence for validation errors
+        for error in score.validation_errors:
+            # Extract schema type and field from error message
+            schema_type = 'Unknown'
+            missing_field = None
+            if ' schema missing ' in error:
+                parts = error.split(' schema missing ')
+                schema_type = parts[0]
+                if 'field:' in parts[1]:
+                    missing_field = parts[1].split('field:')[1].strip()
+
+            record = EvidenceRecord(
+                component_id='structured_data_analyzer',
+                finding='schema_validation_error',
+                evidence_string=error,
+                confidence=ConfidenceLevel.HIGH,
+                timestamp=datetime.now(),
+                source='Schema Validation',
+                source_type=EvidenceSourceType.CALCULATION,
+                source_location=self._url,
+                measured_value={
+                    'error': error,
+                    'schema_type': schema_type,
+                    'missing_field': missing_field,
+                    'spec_reference': f'schema.org/{schema_type}' if schema_type != 'Unknown' else None,
+                },
+                ai_generated=False,
+                reasoning='Required field missing from schema',
+            )
+            self._evidence_collection.add_record(record)
+
+        # Add evidence for validation warnings (info severity)
+        for warning in score.validation_warnings:
+            record = EvidenceRecord(
+                component_id='structured_data_analyzer',
+                finding='schema_warning',
+                evidence_string=warning,
+                confidence=ConfidenceLevel.HIGH,
+                timestamp=datetime.now(),
+                source='Schema Validation',
+                source_type=EvidenceSourceType.CALCULATION,
+                source_location=self._url,
+                measured_value={'warning': warning, 'severity': 'info'},
+                ai_generated=False,
+                reasoning='Recommended field missing (not required but helpful for rich results)',
+            )
+            self._evidence_collection.add_record(record)
+
+    def _add_rich_results_evidence(self, score: StructuredDataScore) -> None:
+        """Add evidence for rich result eligibility.
+
+        Args:
+            score: The structured data score object
+        """
+        for result_type, eligible in score.rich_results_eligible.items():
+            required_schemas = self.RICH_RESULT_REQUIREMENTS.get(result_type, [])
+            satisfied = [s for s in required_schemas if s in score.schema_types]
+            missing = [s for s in required_schemas if s not in score.schema_types]
+
+            if eligible:
+                record = EvidenceRecord(
+                    component_id='structured_data_analyzer',
+                    finding='rich_result_eligible',
+                    evidence_string=f'Eligible for {result_type} rich results',
+                    confidence=ConfidenceLevel.MEDIUM,  # Eligibility doesn't guarantee rich results
+                    timestamp=datetime.now(),
+                    source='Rich Result Analysis',
+                    source_type=EvidenceSourceType.CALCULATION,
+                    source_location=self._url,
+                    measured_value={
+                        'result_type': result_type,
+                        'eligible': True,
+                        'satisfied_requirements': satisfied,
+                    },
+                    ai_generated=False,
+                    reasoning='Required schema types are present for this rich result type',
+                )
+                self._evidence_collection.add_record(record)
+            elif missing and any(s in score.schema_types for s in required_schemas[:1]):
+                # Only add ineligible evidence if page seems to be targeting this type
+                record = EvidenceRecord(
+                    component_id='structured_data_analyzer',
+                    finding='rich_result_ineligible',
+                    evidence_string=f'Not eligible for {result_type} rich results',
+                    confidence=ConfidenceLevel.HIGH,
+                    timestamp=datetime.now(),
+                    source='Rich Result Analysis',
+                    source_type=EvidenceSourceType.CALCULATION,
+                    source_location=self._url,
+                    measured_value={
+                        'result_type': result_type,
+                        'eligible': False,
+                        'missing_requirements': missing,
+                    },
+                    ai_generated=False,
+                    reasoning='Missing required schema types for this rich result type',
+                )
+                self._evidence_collection.add_record(record)
+
+    def _add_summary_evidence(self, score: StructuredDataScore) -> None:
+        """Add summary evidence for structured data analysis.
+
+        Args:
+            score: The structured data score object
+        """
+        eligible_count = sum(1 for v in score.rich_results_eligible.values() if v)
+
+        record = EvidenceRecord(
+            component_id='structured_data_analyzer',
+            finding='structured_data_summary',
+            evidence_string=f'Score: {score.overall_score}/100, {len(score.schema_types)} types, {eligible_count} rich results eligible',
+            confidence=ConfidenceLevel.HIGH,
+            timestamp=datetime.now(),
+            source='Structured Data Analysis',
+            source_type=EvidenceSourceType.CALCULATION,
+            source_location=self._url,
+            measured_value={
+                'overall_score': score.overall_score,
+                'schema_types': score.schema_types,
+                'format_counts': {
+                    'jsonld': score.jsonld_count,
+                    'microdata': score.microdata_count,
+                    'rdfa': score.rdfa_count,
+                },
+                'validation_errors': len(score.validation_errors),
+                'validation_warnings': len(score.validation_warnings),
+                'rich_results_eligible': eligible_count,
+                'missing_opportunities': score.missing_opportunities,
+            },
+            ai_generated=False,
+            reasoning='Summary of all structured data findings',
+            input_summary={
+                'score_breakdown': {
+                    'has_structured_data': 30,
+                    'uses_jsonld': 10,
+                    'multiple_types': 10,
+                    'no_errors': 20,
+                    'rich_results': 15,
+                    'no_missing_opportunities': 15,
+                },
+            },
+        )
+        self._evidence_collection.add_record(record)

@@ -1,8 +1,11 @@
 """SEO analyzer that combines crawling and LLM analysis."""
 
 from pathlib import Path
-from typing import Callable, Optional, Dict, List
+from typing import Callable, Optional, Dict, List, Tuple
+from datetime import datetime
+import hashlib
 import json
+import re
 import requests
 from urllib.parse import urlparse
 
@@ -18,6 +21,11 @@ from seo.models import (
     ContentQualityMetrics,
     SecurityAnalysis,
     URLStructureAnalysis,
+    EvidenceRecord,
+    EvidenceCollection,
+    ConfidenceLevel,
+    EvidenceSourceType,
+    ICEScore,
 )
 from seo.content_quality import ContentQualityAnalyzer
 from seo.advanced_analyzer import (
@@ -27,6 +35,12 @@ from seo.advanced_analyzer import (
     InternationalSEOAnalyzer,
 )
 from seo.crawlability import CrawlabilityAnalyzer
+from seo.image_analyzer import ImageAnalyzer
+from seo.social_analyzer import SocialMetaAnalyzer
+from seo.structured_data import StructuredDataAnalyzer
+from seo.redirect_analyzer import RedirectAnalyzer
+from seo.third_party_analyzer import ThirdPartyAnalyzer
+from seo.resource_analyzer import ResourceAnalyzer
 
 
 class SEOAnalyzer:
@@ -193,7 +207,14 @@ class SEOAnalyzer:
         print("=" * 60 + "\n")
 
         technical_analyzer = TechnicalAnalyzer()
-        technical_issues = technical_analyzer.analyze(site_data)
+        technical_result = technical_analyzer.analyze(site_data)
+
+        # Handle both old (TechnicalIssues) and new (tuple) return types
+        if isinstance(technical_result, tuple):
+            technical_issues, technical_evidence = technical_result
+        else:
+            technical_issues = technical_result
+            technical_evidence = {}
 
         # Print technical report
         tech_report = technical_analyzer.format_issues_report(technical_issues)
@@ -231,7 +252,11 @@ class SEOAnalyzer:
             site_data, technical_issues, site_crawler.get_crawl_summary(), advanced_analysis
         )
 
-        print(llm_recommendations)
+        # Print recommendations text (evidence is stored in the dict)
+        if isinstance(llm_recommendations, dict):
+            print(llm_recommendations.get('recommendations', ''))
+        else:
+            print(llm_recommendations)
 
         # Save snapshot to database
         try:
@@ -247,11 +272,10 @@ class SEOAnalyzer:
 
     def _save_metrics_snapshot(self, domain_url: str, site_data: Dict, technical_issues: TechnicalIssues):
         """Compiles and saves the metrics snapshot to the database."""
-        from .database import MetricsDatabase
-        from datetime import datetime
+        from .database import get_db_client
         from urllib.parse import urlparse
 
-        db = MetricsDatabase()
+        db = get_db_client()
         
         domain = urlparse(domain_url).netloc or domain_url
 
@@ -360,6 +384,78 @@ class SEOAnalyzer:
         from seo.advanced_analyzer import TechnologyAnalyzer
         technology_analyzer = TechnologyAnalyzer()
         results['technology'] = technology_analyzer.analyze_site_technologies(site_data)
+
+        # Image analysis (site-wide)
+        image_analyzer = ImageAnalyzer()
+        image_result = image_analyzer.analyze(site_data)
+        if isinstance(image_result, tuple):
+            image_analysis, image_evidence = image_result
+            results['images'] = {
+                'analysis': image_analysis,
+                'evidence': image_evidence,
+            }
+        else:
+            results['images'] = {'analysis': image_result, 'evidence': {}}
+
+        # Social meta analysis (site-wide)
+        social_analyzer = SocialMetaAnalyzer()
+        social_result = social_analyzer.analyze(site_data)
+        if isinstance(social_result, tuple):
+            social_analysis, social_evidence = social_result
+            results['social_meta'] = {
+                'analysis': social_analysis,
+                'evidence': social_evidence,
+            }
+        else:
+            results['social_meta'] = {'analysis': social_result, 'evidence': {}}
+
+        # Structured data analysis (site-wide)
+        structured_analyzer = StructuredDataAnalyzer()
+        structured_result = structured_analyzer.analyze(site_data)
+        if isinstance(structured_result, tuple):
+            structured_analysis, structured_evidence = structured_result
+            results['structured_data'] = {
+                'analysis': structured_analysis,
+                'evidence': structured_evidence,
+            }
+        else:
+            results['structured_data'] = {'analysis': structured_result, 'evidence': {}}
+
+        # Redirect chain analysis (site-wide)
+        redirect_analyzer = RedirectAnalyzer()
+        redirect_result = redirect_analyzer.analyze(site_data)
+        if isinstance(redirect_result, tuple):
+            redirect_analysis, redirect_evidence = redirect_result
+            results['redirects'] = {
+                'analysis': redirect_analysis,
+                'evidence': redirect_evidence,
+            }
+        else:
+            results['redirects'] = {'analysis': redirect_result, 'evidence': {}}
+
+        # Third-party resource analysis (site-wide)
+        third_party_analyzer = ThirdPartyAnalyzer()
+        third_party_result = third_party_analyzer.analyze(site_data)
+        if isinstance(third_party_result, tuple):
+            third_party_analysis, third_party_evidence = third_party_result
+            results['third_party'] = {
+                'analysis': third_party_analysis,
+                'evidence': third_party_evidence,
+            }
+        else:
+            results['third_party'] = {'analysis': third_party_result, 'evidence': {}}
+
+        # Resource/page weight analysis (site-wide)
+        resource_analyzer = ResourceAnalyzer()
+        resource_result = resource_analyzer.analyze(site_data)
+        if isinstance(resource_result, tuple):
+            resource_analysis, resource_evidence = resource_result
+            results['resources'] = {
+                'analysis': resource_analysis,
+                'evidence': resource_evidence,
+            }
+        else:
+            results['resources'] = {'analysis': resource_result, 'evidence': {}}
 
         # Add metadata_list for Lighthouse/CWV analysis in reports
         from dataclasses import asdict
@@ -580,21 +676,71 @@ class SEOAnalyzer:
             print(f"  Pages with Lang Attribute: {has_lang}/{len(international)}")
             print(f"  Pages with Hreflang: {has_hreflang}/{len(international)}")
 
-        # New modular summaries
-        accessibility_issues = advanced_analysis.get('accessibility', [])
-        if accessibility_issues:
-            print(f"\nAccessibility:")
-            print(f"  Total Issues Found: {len(accessibility_issues)}")
+        # Image Analysis Summary
+        images_data = advanced_analysis.get('images', {})
+        if images_data:
+            analysis = images_data.get('analysis')
+            if analysis:
+                print(f"\nImage Analysis:")
+                print(f"  Total Images: {analysis.total_images}")
+                print(f"  Missing Alt Text: {analysis.missing_alt_count}")
+                if analysis.format_opportunities:
+                    print(f"  Format Optimization Opportunities: {len(analysis.format_opportunities)}")
 
-        social_issues = advanced_analysis.get('social_meta', [])
-        if social_issues:
-            print(f"\nSocial Meta Tags:")
-            print(f"  Total Issues Found: {len(social_issues)}")
-        
-        schema_issues = advanced_analysis.get('structured_data', [])
-        if schema_issues:
-            print(f"\nStructured Data:")
-            print(f"  Total Issues Found: {len(schema_issues)}")
+        # Social Meta Summary
+        social_data = advanced_analysis.get('social_meta', {})
+        if social_data:
+            analysis = social_data.get('analysis')
+            if analysis:
+                print(f"\nSocial Meta Tags:")
+                print(f"  Open Graph Coverage: {analysis.og_coverage_percentage:.1f}%")
+                print(f"  Twitter Card Coverage: {analysis.twitter_coverage_percentage:.1f}%")
+                if analysis.pages_with_issues:
+                    print(f"  Pages with Issues: {len(analysis.pages_with_issues)}")
+
+        # Structured Data Summary
+        structured_data = advanced_analysis.get('structured_data', {})
+        if structured_data:
+            analysis = structured_data.get('analysis')
+            if analysis:
+                print(f"\nStructured Data:")
+                print(f"  Pages with Schema: {analysis.pages_with_schema}/{analysis.total_pages}")
+                if analysis.schema_types:
+                    print(f"  Schema Types Found: {', '.join(list(analysis.schema_types)[:5])}")
+
+        # Redirect Analysis Summary
+        redirects_data = advanced_analysis.get('redirects', {})
+        if redirects_data:
+            analysis = redirects_data.get('analysis')
+            if analysis:
+                print(f"\nRedirect Chains:")
+                print(f"  Total Chains: {analysis.total_chains}")
+                print(f"  Pages with Redirects: {analysis.pages_with_redirects}")
+                if analysis.chains_3_plus_hops > 0:
+                    print(f"  Long Chains (3+ hops): {analysis.chains_3_plus_hops}")
+
+        # Third-Party Analysis Summary
+        third_party_data = advanced_analysis.get('third_party', {})
+        if third_party_data:
+            analysis = third_party_data.get('analysis')
+            if analysis:
+                print(f"\nThird-Party Resources:")
+                print(f"  Total Domains: {len(analysis.domains)}")
+                print(f"  Analytics: {len(analysis.analytics_domains)}, Ads: {len(analysis.advertising_domains)}")
+                if analysis.third_party_weight_percentage > 0:
+                    print(f"  Weight Percentage: {analysis.third_party_weight_percentage:.1f}%")
+
+        # Resource Analysis Summary
+        resources_data = advanced_analysis.get('resources', {})
+        if resources_data:
+            analysis = resources_data.get('analysis')
+            if analysis:
+                avg_kb = analysis.avg_page_weight_bytes / 1024 if analysis.avg_page_weight_bytes else 0
+                print(f"\nPage Weight Analysis:")
+                print(f"  Average Page Weight: {avg_kb:.1f}KB")
+                print(f"  Bloated Pages (>{analysis.total_pages}): {len(analysis.bloated_pages)}")
+                if analysis.image_percentage > 0:
+                    print(f"  Weight Distribution: Images {analysis.image_percentage:.1f}%, JS {analysis.js_percentage:.1f}%, CSS {analysis.css_percentage:.1f}%")
 
     def _generate_site_recommendations(
         self,
@@ -602,18 +748,21 @@ class SEOAnalyzer:
         technical_issues: TechnicalIssues,
         crawl_summary: dict,
         advanced_analysis: Dict = None,
-    ) -> str:
+    ) -> Dict:
         """Generate LLM-powered recommendations for entire site.
 
         Args:
             site_data: Dictionary of URL to PageMetadata
             technical_issues: Technical issues found
             crawl_summary: Summary statistics from crawl
+            advanced_analysis: Optional advanced analysis results
 
         Returns:
-            LLM-generated recommendations
+            Dictionary containing:
+                - recommendations: LLM-generated recommendations text
+                - evidence: Evidence collection linking recommendations to source data
         """
-        # Prepare summary for LLM
+        # Prepare summary for LLM - this becomes the evidence basis
         issues_summary = {
             "missing_titles": len(technical_issues.missing_titles),
             "duplicate_titles": len(technical_issues.duplicate_titles),
@@ -627,6 +776,29 @@ class SEOAnalyzer:
             "thin_content": len(technical_issues.thin_content),
             "missing_canonical": len(technical_issues.missing_canonical),
         }
+
+        # Create evidence collection for recommendation generation
+        evidence_collection = EvidenceCollection(
+            finding='site_recommendations',
+            component_id='llm_recommendations',
+        )
+
+        # Add evidence records for each issue type that has findings
+        for issue_type, count in issues_summary.items():
+            if count > 0:
+                record = EvidenceRecord(
+                    component_id='llm_recommendations',
+                    finding=f'input_metric:{issue_type}',
+                    evidence_string=f'{count} pages affected',
+                    confidence=ConfidenceLevel.HIGH,  # Source data is verified
+                    timestamp=datetime.now(),
+                    source='Crawl Data',
+                    source_type=EvidenceSourceType.CALCULATION,
+                    source_location='technical_issues',
+                    measured_value=count,
+                    unit='pages',
+                )
+                evidence_collection.add_record(record)
 
         # Sample pages for context
         sample_pages = []
@@ -698,6 +870,78 @@ class SEOAnalyzer:
                     'total_pages': len(international),
                 }
 
+            # Image analysis summary
+            images_data = advanced_analysis.get('images', {})
+            if images_data and images_data.get('analysis'):
+                img = images_data['analysis']
+                advanced_summary['images'] = {
+                    'total_images': img.total_images,
+                    'missing_alt_count': img.missing_alt_count,
+                    'format_opportunities': len(img.format_opportunities) if img.format_opportunities else 0,
+                    'potential_savings_kb': round(img.potential_savings_bytes / 1024, 1) if img.potential_savings_bytes else 0,
+                }
+
+            # Social meta summary
+            social_data = advanced_analysis.get('social_meta', {})
+            if social_data and social_data.get('analysis'):
+                soc = social_data['analysis']
+                advanced_summary['social_meta'] = {
+                    'og_coverage_percentage': soc.og_coverage_percentage,
+                    'twitter_coverage_percentage': soc.twitter_coverage_percentage,
+                    'pages_with_og': soc.pages_with_og,
+                    'pages_with_twitter': soc.pages_with_twitter,
+                    'total_pages': soc.total_pages,
+                }
+
+            # Structured data summary
+            structured_data = advanced_analysis.get('structured_data', {})
+            if structured_data and structured_data.get('analysis'):
+                sd = structured_data['analysis']
+                advanced_summary['structured_data'] = {
+                    'pages_with_schema': sd.pages_with_schema,
+                    'total_pages': sd.total_pages,
+                    'schema_types': list(sd.schema_types)[:10] if sd.schema_types else [],
+                    'validation_errors': sd.validation_errors_count if hasattr(sd, 'validation_errors_count') else 0,
+                }
+
+            # Redirect analysis summary
+            redirects_data = advanced_analysis.get('redirects', {})
+            if redirects_data and redirects_data.get('analysis'):
+                red = redirects_data['analysis']
+                advanced_summary['redirects'] = {
+                    'total_chains': red.total_chains,
+                    'pages_with_redirects': red.pages_with_redirects,
+                    'chains_3_plus_hops': red.chains_3_plus_hops,
+                    'total_time_wasted_ms': red.total_time_wasted_ms,
+                    'max_chain_length': red.max_chain_length,
+                }
+
+            # Third-party analysis summary
+            third_party_data = advanced_analysis.get('third_party', {})
+            if third_party_data and third_party_data.get('analysis'):
+                tp = third_party_data['analysis']
+                advanced_summary['third_party'] = {
+                    'total_domains': len(tp.domains),
+                    'analytics_domains': len(tp.analytics_domains),
+                    'advertising_domains': len(tp.advertising_domains),
+                    'third_party_weight_percentage': tp.third_party_weight_percentage,
+                    'avg_requests_per_page': tp.avg_third_party_requests_per_page,
+                }
+
+            # Resource/page weight summary
+            resources_data = advanced_analysis.get('resources', {})
+            if resources_data and resources_data.get('analysis'):
+                res = resources_data['analysis']
+                advanced_summary['page_weight'] = {
+                    'avg_page_weight_kb': round(res.avg_page_weight_bytes / 1024, 1) if res.avg_page_weight_bytes else 0,
+                    'bloated_pages_count': len(res.bloated_pages),
+                    'large_js_pages_count': len(res.large_js_pages),
+                    'large_image_pages_count': len(res.large_image_pages),
+                    'image_percentage': res.image_percentage,
+                    'js_percentage': res.js_percentage,
+                    'css_percentage': res.css_percentage,
+                }
+
         prompt = f"""
 As an SEO expert, analyze this website and provide comprehensive SEO recommendations using the ICE framework for prioritization.
 
@@ -766,8 +1010,218 @@ Example format:
 IMPORTANT: Do NOT include any closing questions, offers for further assistance, or phrases like "Would you like me to..." at the end of your response. End with the actionable recommendations only.
 """
 
+        # Compute prompt hash for reproducibility
+        prompt_hash = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
+
+        # Create LLM evidence record
+        llm_record = EvidenceRecord(
+            component_id='llm_recommendations',
+            finding='ice_recommendations',
+            evidence_string='LLM-generated ICE framework recommendations',
+            confidence=ConfidenceLevel.MEDIUM,  # LLM outputs capped at MEDIUM
+            timestamp=datetime.now(),
+            source='LLM Inference',
+            source_type=EvidenceSourceType.LLM_INFERENCE,
+            ai_generated=True,
+            model_id=self.llm.model,
+            prompt_hash=prompt_hash,
+            input_summary={
+                'crawl_summary': crawl_summary,
+                'issues_summary': issues_summary,
+                'advanced_summary': advanced_summary,
+                'sample_pages_count': len(sample_pages),
+                'total_pages': len(site_data),
+            },
+        )
+        evidence_collection.add_record(llm_record)
+
         try:
             response = self.llm._call_llm(prompt)
-            return response
+
+            # Update evidence with response info
+            llm_record.reasoning = response[:500] + '...' if len(response) > 500 else response
+
+            # Parse ICE-scored recommendations from response
+            parsed_ice_scores = self._parse_ice_recommendations(response)
+            categorized_recommendations = self._categorize_ice_recommendations(parsed_ice_scores)
+
+            # Add evidence for parsed recommendations
+            if parsed_ice_scores:
+                parse_record = EvidenceRecord(
+                    component_id='llm_recommendations',
+                    finding='parsed_ice_scores',
+                    evidence_string=f'Extracted {len(parsed_ice_scores)} ICE-scored recommendations',
+                    confidence=ConfidenceLevel.MEDIUM,
+                    timestamp=datetime.now(),
+                    source='ICE Parser',
+                    source_type=EvidenceSourceType.CALCULATION,
+                    ai_generated=False,
+                    measured_value={
+                        'total_recommendations': len(parsed_ice_scores),
+                        'critical_count': len(categorized_recommendations['critical']),
+                        'high_count': len(categorized_recommendations['high']),
+                        'quick_wins_count': len(categorized_recommendations['quick_wins']),
+                        'top_3_actions': [s.action[:100] for s in parsed_ice_scores[:3]],
+                        'top_3_scores': [s.ice_score for s in parsed_ice_scores[:3]],
+                    },
+                    reasoning='Parsed structured ICE scores from LLM response text',
+                )
+                evidence_collection.add_record(parse_record)
+
+            return {
+                'recommendations': response,
+                'parsed_recommendations': parsed_ice_scores,
+                'categorized_recommendations': categorized_recommendations,
+                'evidence': evidence_collection.to_dict(),
+                'ai_generated': True,
+                'model_id': self.llm.model,
+                'prompt_hash': prompt_hash,
+                'source_metrics': issues_summary,
+            }
         except Exception as e:
-            return f"Failed to generate LLM recommendations: {e}"
+            return {
+                'recommendations': f"Failed to generate LLM recommendations: {e}",
+                'evidence': evidence_collection.to_dict(),
+                'ai_generated': True,
+                'model_id': self.llm.model,
+                'error': str(e),
+            }
+
+    def _parse_ice_recommendations(self, llm_response: str) -> List[ICEScore]:
+        """Parse ICE-scored recommendations from LLM response.
+
+        Extracts recommendations in the format:
+        [I:X C:X E:X = ICE:X.X] Action description
+
+        Args:
+            llm_response: Raw LLM response text
+
+        Returns:
+            List of ICEScore objects sorted by ICE score (descending)
+        """
+        ice_scores = []
+
+        # Pattern to match: [I:9 C:8 E:7 = ICE:5.04] or variations
+        # Captures: impact, confidence, ease, ice_score, and the action text
+        ice_pattern = re.compile(
+            r'\[I:(\d+(?:\.\d+)?)\s*C:(\d+(?:\.\d+)?)\s*E:(\d+(?:\.\d+)?)\s*=\s*ICE:(\d+(?:\.\d+)?)\]\s*(.+?)(?=\n\s*\[I:|$)',
+            re.MULTILINE | re.DOTALL
+        )
+
+        # Also try alternate pattern without calculated ICE score
+        alt_pattern = re.compile(
+            r'\[I:(\d+(?:\.\d+)?)\s*C:(\d+(?:\.\d+)?)\s*E:(\d+(?:\.\d+)?)\]\s*(.+?)(?=\n\s*\[I:|$)',
+            re.MULTILINE | re.DOTALL
+        )
+
+        matches = ice_pattern.findall(llm_response)
+
+        for match in matches:
+            try:
+                impact = float(match[0])
+                confidence = float(match[1])
+                ease = float(match[2])
+                ice_score_val = float(match[3])
+                action_text = match[4].strip()
+
+                # Extract action (first line) and description (rest)
+                lines = action_text.split('\n')
+                action = lines[0].strip()
+                description = '\n'.join(lines[1:]).strip() if len(lines) > 1 else ''
+
+                # Extract implementation steps if present
+                impl_steps = []
+                if 'Action:' in description:
+                    action_match = re.search(r'Action:\s*(.+?)(?=\n|$)', description)
+                    if action_match:
+                        impl_steps.append(action_match.group(1).strip())
+
+                # Extract expected outcome if present
+                expected = ''
+                if 'Impact:' in description:
+                    impact_match = re.search(r'Impact:\s*(.+?)(?=\n|$)', description)
+                    if impact_match:
+                        expected = impact_match.group(1).strip()
+
+                ice_scores.append(ICEScore(
+                    action=action,
+                    impact=impact,
+                    confidence=confidence,
+                    ease=ease,
+                    ice_score=ice_score_val,
+                    description=description,
+                    implementation_steps=impl_steps,
+                    expected_outcome=expected,
+                ))
+            except (ValueError, IndexError):
+                continue
+
+        # Try alternate pattern if no matches found
+        if not ice_scores:
+            alt_matches = alt_pattern.findall(llm_response)
+            for match in alt_matches:
+                try:
+                    impact = float(match[0])
+                    confidence = float(match[1])
+                    ease = float(match[2])
+                    action_text = match[3].strip()
+
+                    # Calculate ICE score
+                    ice_score_val = (impact * confidence * ease) / 100
+
+                    lines = action_text.split('\n')
+                    action = lines[0].strip()
+                    description = '\n'.join(lines[1:]).strip() if len(lines) > 1 else ''
+
+                    ice_scores.append(ICEScore(
+                        action=action,
+                        impact=impact,
+                        confidence=confidence,
+                        ease=ease,
+                        ice_score=ice_score_val,
+                        description=description,
+                    ))
+                except (ValueError, IndexError):
+                    continue
+
+        # Sort by ICE score descending
+        ice_scores.sort(key=lambda x: x.ice_score, reverse=True)
+
+        return ice_scores
+
+    def _categorize_ice_recommendations(
+        self,
+        ice_scores: List[ICEScore]
+    ) -> Dict[str, List[ICEScore]]:
+        """Categorize ICE recommendations by priority tier.
+
+        Args:
+            ice_scores: List of parsed ICEScore objects
+
+        Returns:
+            Dictionary with priority tiers as keys
+        """
+        categories = {
+            'critical': [],      # ICE >= 6.0 (highest priority)
+            'high': [],          # ICE 4.0-5.99
+            'medium': [],        # ICE 2.0-3.99
+            'low': [],           # ICE < 2.0
+            'quick_wins': [],    # Ease >= 7 AND Impact >= 7
+        }
+
+        for score in ice_scores:
+            # Check for quick wins first
+            if score.ease >= 7 and score.impact >= 7:
+                categories['quick_wins'].append(score)
+
+            # Categorize by ICE score
+            if score.ice_score >= 6.0:
+                categories['critical'].append(score)
+            elif score.ice_score >= 4.0:
+                categories['high'].append(score)
+            elif score.ice_score >= 2.0:
+                categories['medium'].append(score)
+            else:
+                categories['low'].append(score)
+
+        return categories

@@ -61,7 +61,7 @@ Conclusion/Score
 
 | Conclusion | Evidence Captured | Evidence Gap |
 |------------|-------------------|--------------|
-| "Magento detected" | Full `EvidenceCollection` with matched string | None |
+| "Magento/Adobe Commerce detected" | Full `EvidenceCollection` with matched string | None |
 | Technology version | Script URL version extraction | Incomplete: not all techs have version detection |
 | Technology category | Static mapping in `CATEGORIES` | None |
 
@@ -71,17 +71,17 @@ The `detect()` method now returns an `evidence` key containing full audit trails
 
 ```python
 {
-    'all_technologies': ['Magento', 'jQuery', 'Nginx'],
+    'all_technologies': ['Magento/Adobe Commerce', 'jQuery', 'Nginx'],
     'by_category': {...},
     'details': {...},
     'evidence': {
-        'Magento': {
-            'finding': 'Magento',
+        'Magento/Adobe Commerce': {
+            'finding': 'Magento/Adobe Commerce',
             'component_id': 'technology_detection',
             'records': [
                 {
                     'component_id': 'technology_detection',
-                    'finding': 'Magento',
+                    'finding': 'Magento/Adobe Commerce',
                     'evidence_string': 'mage/cookies.js',  # Actual matched string
                     'confidence': 'High',
                     'timestamp': '2024-01-15T10:30:00',
@@ -598,7 +598,7 @@ class EvidenceRecord:
 
     # Required fields
     component_id: str          # e.g., 'technology_detection', 'technical_seo'
-    finding: str               # e.g., 'Magento', 'missing_meta_description'
+    finding: str               # e.g., 'Magento/Adobe Commerce', 'missing_meta_description'
     evidence_string: str       # e.g., 'mage/cookies.js', actual meta text
     confidence: ConfidenceLevel
     timestamp: datetime
@@ -685,7 +685,7 @@ class EvidenceCollection:
 ### 1. Inline Indicators
 
 ```
-Technology: Magento [?]
+Technology: Magento/Adobe Commerce [?]
             └── Tooltip: "Detected via pattern 'mage/' in script src"
 ```
 

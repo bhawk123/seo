@@ -1,3 +1,15 @@
+# Default test data for form filling
+defaults:
+  first_name: John
+  last_name: Smith
+  full_name: John Smith
+  email: test@example.com
+  phone: "3038796453"
+  phone_formatted: "(303) 879-6453"
+  company: Test Company
+  website: https://example.com
+  message: This is a test message.
+
 accounts:
   - address: 2753 Waverly Dr
     unit: APT 1001

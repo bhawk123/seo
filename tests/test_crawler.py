@@ -11,7 +11,7 @@ class TestWebCrawler:
     def test_crawler_initialization(self):
         """Test crawler can be initialized."""
         crawler = WebCrawler()
-        assert crawler.user_agent == "SEO-Analyzer-Bot/1.0"
+        assert crawler.user_agent == "Mozilla/5.0 (compatible; SEO-Analyzer/1.0; +https://github.com/yourusername/seo-analyzer)"
 
     def test_crawler_custom_user_agent(self):
         """Test crawler with custom user agent."""
@@ -59,7 +59,7 @@ class TestWebCrawler:
         """
 
         metadata = crawler._extract_metadata(
-            "https://example.com", html, 200, 0.5
+            "https://example.com", html, 200, 0.5, {}
         )
 
         assert metadata.title == "Test Page"

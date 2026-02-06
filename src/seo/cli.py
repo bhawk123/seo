@@ -1,13 +1,44 @@
 """Command-line interface for SEO analyzer."""
 
+import asyncio
 import sys
 import json
 from typing import Optional
 from datetime import datetime
 
 from seo.analyzer import SEOAnalyzer
-from seo.config import settings # Changed from Config
-from seo.database import MetricsDatabase # New import
+from seo.async_site_crawler import AsyncSiteCrawler
+from seo.config import settings
+from seo.database import get_db_client
+from seo.logging_config import setup_logging
+
+
+async def _async_crawl(
+    start_url: str,
+    max_pages: int,
+    rate_limit: float,
+    max_concurrent: int,
+    user_agent: Optional[str] = None,
+):
+    """Run async site crawl.
+
+    Args:
+        start_url: URL to start crawling from
+        max_pages: Maximum pages to crawl
+        rate_limit: Seconds between requests
+        max_concurrent: Maximum concurrent requests
+        user_agent: Optional user agent string
+
+    Returns:
+        Dictionary of URL to PageMetadata
+    """
+    crawler = AsyncSiteCrawler(
+        max_pages=max_pages,
+        rate_limit=rate_limit,
+        max_concurrent=max_concurrent,
+        user_agent=user_agent,
+    )
+    return await crawler.crawl_site(start_url)
 
 
 def print_seo_score(url: str, score):
@@ -71,11 +102,46 @@ def analyze_command(args):
                 print("Warning: Site crawl mode only uses the first URL")
 
             start_url = args.urls[0]
-            site_data, technical_issues, llm_recommendations, advanced_analysis = analyzer.analyze_site( # Added advanced_analysis
-                start_url=start_url,
-                max_pages=args.max_pages,
-                rate_limit=args.rate_limit,
-            )
+
+            # Use async crawler if --async flag is set
+            if getattr(args, 'use_async', False):
+                print(f"Using async crawler (max_concurrent={args.max_concurrent})...")
+                site_data = asyncio.run(_async_crawl(
+                    start_url=start_url,
+                    max_pages=args.max_pages,
+                    rate_limit=args.rate_limit,
+                    max_concurrent=args.max_concurrent,
+                    user_agent=settings.USER_AGENT,
+                ))
+
+                # Run analysis on async-crawled data
+                from seo.technical import TechnicalAnalyzer
+                technical_analyzer = TechnicalAnalyzer()
+                technical_result = technical_analyzer.analyze(site_data)
+                if isinstance(technical_result, tuple):
+                    technical_issues, _ = technical_result
+                else:
+                    technical_issues = technical_result
+
+                # Run advanced analysis
+                advanced_analysis = analyzer._run_advanced_analysis(site_data)
+
+                # Generate LLM recommendations
+                from seo.site_crawler import SiteCrawler
+                temp_crawler = SiteCrawler(max_pages=args.max_pages)
+                temp_crawler.pages = site_data
+                llm_recommendations = analyzer._generate_site_recommendations(
+                    site_data, technical_issues, temp_crawler.get_crawl_summary(), advanced_analysis
+                )
+            else:
+                # Use sync crawler (original behavior)
+                result = analyzer.analyze_site(
+                    start_url=start_url,
+                    max_pages=args.max_pages,
+                    rate_limit=args.rate_limit,
+                )
+                # Handle 5-tuple return value
+                site_data, technical_issues, llm_recommendations, advanced_analysis, _ = result
 
             # Output site crawl results
             if args.output == "json":
@@ -176,7 +242,7 @@ def analyze_command(args):
 
 def report_command(args):
     """Generate a historical report for a domain."""
-    db = MetricsDatabase()
+    db = get_db_client()
     snapshots = db.get_snapshots_for_domain(args.domain)
     db.close()
 
@@ -214,7 +280,19 @@ def main():
     parser = argparse.ArgumentParser(
         description="SEO Analyzer - Crawl and analyze websites for SEO quality using LLM"
     )
-    
+
+    # Global flags (before subcommands)
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        default="INFO",
+        help="Set logging verbosity (default: INFO)",
+    )
+    parser.add_argument(
+        "--log-file",
+        help="Write logs to file in addition to console",
+    )
+
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Analyze command parser
@@ -253,6 +331,18 @@ def main():
         default=0.5,
         help="Seconds to wait between requests in site mode (default: 0.5)",
     )
+    analyze_parser.add_argument(
+        "--async",
+        dest="use_async",
+        action="store_true",
+        help="Use high-performance async crawler (5-10x faster)",
+    )
+    analyze_parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=10,
+        help="Maximum concurrent requests for async crawler (default: 10)",
+    )
     analyze_parser.set_defaults(func=analyze_command)
 
     # Report command parser
@@ -277,6 +367,12 @@ def main():
     report_parser.set_defaults(func=report_command)
 
     args = parser.parse_args()
+
+    # Configure logging based on flags
+    setup_logging(
+        level=args.log_level,
+        log_file=getattr(args, 'log_file', None),
+    )
 
     if hasattr(args, "func"):
         args.func(args)

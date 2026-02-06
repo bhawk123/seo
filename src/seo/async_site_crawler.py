@@ -23,8 +23,33 @@ from seo.core_web_vitals import CoreWebVitalsAnalyzer
 from seo.structured_data import StructuredDataAnalyzer
 from seo.external.pagespeed_insights import PageSpeedInsightsAPI
 from seo.technology_detector import TechnologyDetector
+from seo.constants import (
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_MAX_PAGES_TO_CRAWL,
+    DEFAULT_RATE_LIMIT_SECONDS,
+    DEFAULT_MAX_CONCURRENT_REQUESTS,
+    MAX_SESSION_ERRORS_BEFORE_ABORT,
+    DEFAULT_PSI_SAMPLE_RATE,
+    MAX_PAGE_POOL_RETRIES,
+    CRAWL_STATE_VERSION,
+    DESKTOP_VIEWPORT_WIDTH,
+    DESKTOP_VIEWPORT_HEIGHT,
+    LCP_GOOD_SECONDS,
+    LCP_POOR_SECONDS,
+    CLS_GOOD_THRESHOLD,
+    CLS_POOR_THRESHOLD,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class WAFBlockedException(Exception):
+    """Raised when the crawler is blocked by a WAF/CDN."""
+    def __init__(self, message: str, status_code: int = None, waf_provider: str = None):
+        self.message = message
+        self.status_code = status_code
+        self.waf_provider = waf_provider
+        super().__init__(message)
 
 
 @dataclass
@@ -97,12 +122,12 @@ class AsyncSiteCrawler:
 
     def __init__(
         self,
-        max_pages: int = 50,
+        max_pages: int = DEFAULT_MAX_PAGES_TO_CRAWL,
         max_depth: Optional[int] = None,
-        rate_limit: float = 0.5,
+        rate_limit: float = DEFAULT_RATE_LIMIT_SECONDS,
         user_agent: Optional[str] = None,
-        max_concurrent: int = 3,
-        timeout: int = 30,
+        max_concurrent: int = DEFAULT_MAX_CONCURRENT_REQUESTS,
+        timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
         headless: bool = True,
         resume_state: Optional[dict] = None,
         output_manager: Optional["OutputManager"] = None,
@@ -110,7 +135,7 @@ class AsyncSiteCrawler:
         enable_psi: bool = False,
         psi_api_key: Optional[str] = None,
         psi_strategy: str = "mobile",
-        psi_sample_rate: float = 0.1,
+        psi_sample_rate: float = DEFAULT_PSI_SAMPLE_RATE,
         address_config: Optional[dict] = None,
         ignore_robots: bool = False,
     ):
@@ -189,12 +214,11 @@ class AsyncSiteCrawler:
 
         # Track session errors for context recovery
         self._session_errors: int = 0
-        self._max_session_errors: int = 5
+        self._max_session_errors: int = MAX_SESSION_ERRORS_BEFORE_ABORT
 
         # Store playwright instance for browser recovery
         self._playwright = None
         self._launch_args = None
-        self._chrome_user_agent = None
 
         # PageSpeed Insights API integration
         self.enable_psi = enable_psi and psi_api_key is not None
@@ -214,6 +238,18 @@ class AsyncSiteCrawler:
         self.address_config = address_config
         if address_config:
             logger.info(f"Address config loaded: {address_config.get('address')}")
+
+        # WAF/CDN blocking detection
+        self._waf_blocked: bool = False
+        self._waf_provider: Optional[str] = None
+        self._waf_status_code: Optional[int] = None
+
+        # Set Chrome user agent early so it's consistent everywhere
+        self._chrome_user_agent = self.user_agent or (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        )
 
     def set_checkpoint_callback(self, callback: Callable[[dict], None]) -> None:
         """Set a callback function that will be called on each checkpoint.
@@ -241,7 +277,7 @@ class AsyncSiteCrawler:
             State dictionary suitable for saving
         """
         return {
-            "version": 1,
+            "version": CRAWL_STATE_VERSION,
             "status": status,
             "config": {
                 "start_url": self._start_url,
@@ -389,18 +425,10 @@ class AsyncSiteCrawler:
             # Store playwright instance for recovery
             self._playwright = p
 
-            # Minimal launch args - keep it simple
+            # Minimal launch args - avoid anything that looks like automation
             self._launch_args = [
                 "--disable-blink-features=AutomationControlled",
-                "--disable-http2",
             ]
-
-            # Realistic Chrome user agent
-            self._chrome_user_agent = self.user_agent or (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            )
 
             # Launch browser and create context
             await self._launch_browser()
@@ -444,6 +472,23 @@ class AsyncSiteCrawler:
                 ]
 
                 await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Check for WAF blocking after first page - abort immediately
+                if self._waf_blocked:
+                    logger.error(f"\n{'=' * 60}")
+                    logger.error(f"🛑 CRAWL ABORTED: Blocked by {self._waf_provider}")
+                    logger.error(f"   Status code: {self._waf_status_code}")
+                    logger.error(f"   This site is protected by WAF/CDN that blocks crawlers.")
+                    logger.error(f"{'=' * 60}\n")
+                    # Cleanup browser
+                    await self._drain_page_pool()
+                    await self._context.close()
+                    await self._browser.close()
+                    raise WAFBlockedException(
+                        f"Blocked by {self._waf_provider}",
+                        status_code=self._waf_status_code,
+                        waf_provider=self._waf_provider,
+                    )
 
                 # Save checkpoint every 10 pages
                 if len(self.visited_urls) % 10 == 0:
@@ -533,17 +578,17 @@ class AsyncSiteCrawler:
                     # Update CWV status based on Lighthouse data
                     if metadata.lighthouse_lcp:
                         lcp_seconds = metadata.lighthouse_lcp / 1000
-                        if lcp_seconds <= 2.5:
+                        if lcp_seconds <= LCP_GOOD_SECONDS:
                             metadata.cwv_lcp_status = "good"
-                        elif lcp_seconds <= 4.0:
+                        elif lcp_seconds <= LCP_POOR_SECONDS:
                             metadata.cwv_lcp_status = "needs-improvement"
                         else:
                             metadata.cwv_lcp_status = "poor"
 
                     if metadata.lighthouse_cls is not None:
-                        if metadata.lighthouse_cls <= 0.1:
+                        if metadata.lighthouse_cls <= CLS_GOOD_THRESHOLD:
                             metadata.cwv_cls_status = "good"
-                        elif metadata.lighthouse_cls <= 0.25:
+                        elif metadata.lighthouse_cls <= CLS_POOR_THRESHOLD:
                             metadata.cwv_cls_status = "needs-improvement"
                         else:
                             metadata.cwv_cls_status = "poor"
@@ -557,22 +602,83 @@ class AsyncSiteCrawler:
                 logger.warning(f"  ⚠ PSI failed for {url}: {error_msg}")
 
     async def _launch_browser(self) -> None:
-        """Launch browser and create context."""
+        """Launch browser and create context with stealth settings."""
+        # Use installed Chrome instead of Playwright's Chromium for better stealth
+        # Chrome has a legitimate TLS fingerprint that WAFs trust
         self._browser = await self._playwright.chromium.launch(
             headless=self.headless,
             args=self._launch_args,
+            channel="chrome",  # Use installed Chrome, not bundled Chromium
         )
 
         self._context = await self._browser.new_context(
-            viewport={"width": 1920, "height": 1080},
+            viewport={"width": DESKTOP_VIEWPORT_WIDTH, "height": DESKTOP_VIEWPORT_HEIGHT},
             user_agent=self._chrome_user_agent,
             locale="en-US",
             timezone_id="America/New_York",
+            device_scale_factor=1,
+            has_touch=False,
+            is_mobile=False,
+            java_script_enabled=True,
+            color_scheme="light",
+            extra_http_headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"macOS"',
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+            },
         )
+
+        # Add stealth scripts to hide automation indicators
+        await self._context.add_init_script("""
+            // Override webdriver property
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+            });
+
+            // Override plugins to look like a real browser
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [
+                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+                    { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' },
+                ],
+            });
+
+            // Override languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en'],
+            });
+
+            // Fix permissions query
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+
+            // Override chrome runtime
+            window.chrome = {
+                runtime: {},
+            };
+
+            // Remove automation-related properties
+            delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+            delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+            delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+        """)
 
         logger.info("Browser launched successfully")
 
-    async def _get_page_from_pool(self, max_retries: int = 3) -> Page:
+    async def _get_page_from_pool(self, max_retries: int = MAX_PAGE_POOL_RETRIES) -> Page:
         """Get a page from the pool, creating one if needed.
 
         Args:
@@ -659,7 +765,7 @@ class AsyncSiteCrawler:
             # Try to create new context
             try:
                 self._context = await self._browser.new_context(
-                    viewport={"width": 1920, "height": 1080},
+                    viewport={"width": DESKTOP_VIEWPORT_WIDTH, "height": DESKTOP_VIEWPORT_HEIGHT},
                     user_agent=self._chrome_user_agent,
                     locale="en-US",
                     timezone_id="America/New_York",
@@ -798,19 +904,20 @@ class AsyncSiteCrawler:
                 total_start = time.time()
                 timing = TimingMetrics(url=url)
 
-                # Navigate to the page
+                # Navigate to the page - use load, then wait for JS to settle
                 nav_start = time.time()
                 response = await page.goto(
                     url,
-                    wait_until="domcontentloaded",
+                    wait_until="load",
                     timeout=self.timeout
                 )
                 timing.navigation_time = time.time() - nav_start
                 load_time = timing.navigation_time
 
                 # Human-like behavior after page loads
+                # Wait longer initially to let bot detection JS run and (hopefully) pass us
                 delay_start = time.time()
-                await asyncio.sleep(random.uniform(1.0, 2.0))
+                await asyncio.sleep(random.uniform(2.0, 3.5))
                 timing.human_delay_time = time.time() - delay_start
 
                 mouse_start = time.time()
@@ -819,8 +926,13 @@ class AsyncSiteCrawler:
 
                 scroll_start = time.time()
                 await page.evaluate("window.scrollTo(0, 300)")
+                await asyncio.sleep(random.uniform(0.5, 1.0))
+                await page.evaluate("window.scrollTo(0, 0)")  # Scroll back up
                 await asyncio.sleep(random.uniform(0.3, 0.6))
                 timing.scroll_time = time.time() - scroll_start
+
+                # Handle any popups (newsletter signups, cookie banners, etc.)
+                await self._handle_popups(page)
 
                 # Try to fill address if prompted
                 form_start = time.time()
@@ -836,16 +948,44 @@ class AsyncSiteCrawler:
                 was_redirected = final_url != original_url
                 if was_redirected:
                     resources.redirects = [original_url, final_url]
+                    # Skip if redirected to payment/third-party domain
+                    if self._should_skip_url("", final_url):
+                        logger.info(f"  → Skipping payment/external redirect: {final_url}")
+                        return
+
+                # Check for WAF/CDN blocking
+                # Get fresh content - page may have updated after bot detection passed
+                try:
+                    page_html = await page.content()
+                    resp_headers = await response.all_headers()
+                    waf_provider = self._detect_waf_block(response.status, page_html, resp_headers)
+
+                    # If we detect a potential block, wait a bit more and recheck
+                    # Some WAFs take time to "pass" you through
+                    if waf_provider:
+                        logger.info(f"  ⏳ Potential WAF challenge detected, waiting for resolution...")
+                        await asyncio.sleep(3.0)
+                        await self._human_mouse_movement(page)
+                        await asyncio.sleep(1.0)
+
+                        # Recheck - page content may have changed
+                        page_html = await page.content()
+                        waf_provider = self._detect_waf_block(response.status, page_html, resp_headers)
+
+                        if waf_provider:
+                            self._waf_blocked = True
+                            self._waf_provider = waf_provider
+                            self._waf_status_code = response.status
+                            logger.error(f"  🛑 WAF/CDN BLOCKED by {waf_provider} (status: {response.status})")
+                            return
+                        else:
+                            logger.info(f"  ✓ WAF challenge passed!")
+
+                except Exception as e:
+                    logger.debug(f"WAF detection check failed: {e}")
 
                 if response.status != 200:
                     logger.warning(f"  ⚠️  Non-200 status: {response.status}")
-                    if response.status in [403, 503]:
-                        try:
-                            body = await page.content()
-                            if "captcha" in body.lower() or "robot" in body.lower():
-                                logger.warning(f"  ⚠️  Likely bot detection triggered")
-                        except Exception:
-                            pass
                     return
 
                 # Capture response headers
@@ -969,6 +1109,96 @@ class AsyncSiteCrawler:
             }""")
         except Exception:
             return {"wordCount": 0, "imageCount": 0}
+
+    async def _handle_popups(self, page: Page) -> bool:
+        """Detect and dismiss modal popups (newsletter signups, cookie banners, etc.).
+
+        Args:
+            page: Playwright page instance
+
+        Returns:
+            True if a popup was handled
+        """
+        handled = False
+
+        # Common close button selectors for modals
+        close_selectors = [
+            # X buttons
+            'button[aria-label="Close"]',
+            'button[aria-label="close"]',
+            'button[aria-label="Dismiss"]',
+            '[aria-label="Close"]',
+            '[aria-label="close"]',
+            '.close-button',
+            '.modal-close',
+            '.popup-close',
+            '.dialog-close',
+            'button.close',
+            '[data-dismiss="modal"]',
+            '[data-close]',
+            '.modal button svg',  # X icon buttons
+            '.modal [class*="close"]',
+            '[class*="modal"] [class*="close"]',
+            '[class*="popup"] [class*="close"]',
+            '[role="dialog"] button[class*="close"]',
+            '[role="dialog"] [aria-label*="close" i]',
+            # Specific patterns
+            'button:has(svg[class*="close"])',
+            '[class*="newsletter"] button[class*="close"]',
+            '[class*="signup"] button[class*="close"]',
+        ]
+
+        # Cookie consent buttons
+        cookie_selectors = [
+            'button:has-text("Accept")',
+            'button:has-text("Accept All")',
+            'button:has-text("Accept Cookies")',
+            'button:has-text("Allow")',
+            'button:has-text("Allow All")',
+            'button:has-text("Got it")',
+            'button:has-text("OK")',
+            'button:has-text("Agree")',
+            'button:has-text("I Agree")',
+            '[id*="cookie"] button',
+            '[class*="cookie"] button',
+            '[id*="consent"] button',
+            '[class*="consent"] button',
+            '#onetrust-accept-btn-handler',
+            '.cc-accept',
+            '.cookie-accept',
+        ]
+
+        # "No thanks" / decline newsletter buttons
+        decline_selectors = [
+            'button:has-text("No thanks")',
+            'button:has-text("No, thanks")',
+            'button:has-text("Maybe later")',
+            'button:has-text("Not now")',
+            'button:has-text("Skip")',
+            'button:has-text("Close")',
+            'a:has-text("No thanks")',
+            'a:has-text("Maybe later")',
+            '[class*="modal"] button:has-text("No")',
+        ]
+
+        all_selectors = close_selectors + cookie_selectors + decline_selectors
+
+        for selector in all_selectors:
+            try:
+                elements = await page.query_selector_all(selector)
+                for element in elements:
+                    if await element.is_visible():
+                        await element.click()
+                        logger.info(f"  → Dismissed popup: {selector}")
+                        handled = True
+                        await asyncio.sleep(0.5)
+                        break
+                if handled:
+                    break
+            except Exception:
+                continue
+
+        return handled
 
     async def _respect_rate_limit(self, domain: str) -> None:
         """Ensure minimum delay between requests to same domain.
@@ -1147,8 +1377,9 @@ class AsyncSiteCrawler:
         try:
             # Fetch robots.txt using httpx with browser-like headers
             headers = {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-                "Accept": "text/plain,*/*",
+                "User-Agent": self._chrome_user_agent,
+                "Accept": "text/plain,text/html,*/*",
+                "Accept-Language": "en-US,en;q=0.9",
             }
             async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
                 response = await client.get(robots_url, headers=headers)
@@ -1162,12 +1393,12 @@ class AsyncSiteCrawler:
                     # Check if our user agent is blocked
                     if not rp.can_fetch("*", start_url):
                         logger.warning(f"robots.txt may block crawling of {start_url}")
+                    # Only store parser if we actually parsed content
+                    self.robots_parsers[base_url] = rp
                 else:
                     logger.info(f"No robots.txt found at {robots_url} (status: {response.status_code})")
         except Exception as e:
             logger.warning(f"Could not load robots.txt: {e}")
-
-        self.robots_parsers[base_url] = rp
 
     def _can_crawl(self, url: str) -> bool:
         """Check if URL can be crawled according to robots.txt.
@@ -1555,8 +1786,8 @@ class AsyncSiteCrawler:
 
                 # Check if it's internal
                 if parsed.netloc == base_domain:
-                    # Skip certain file types
-                    if self._should_skip_url(parsed.path):
+                    # Skip certain paths, file types, and payment domains
+                    if self._should_skip_url(parsed.path, normalized_url):
                         continue
 
                     # Only add if not already visited
@@ -1568,11 +1799,12 @@ class AsyncSiteCrawler:
 
         return internal_links
 
-    def _should_skip_url(self, path: str) -> bool:
-        """Check if URL should be skipped based on path.
+    def _should_skip_url(self, path: str, full_url: str = None) -> bool:
+        """Check if URL should be skipped based on path or domain.
 
         Args:
             path: URL path
+            full_url: Optional full URL for domain checking
 
         Returns:
             True if URL should be skipped
@@ -1585,14 +1817,173 @@ class AsyncSiteCrawler:
         }
 
         # Skip slow/unimportant paths
-        skip_patterns = {
+        skip_path_patterns = {
             '/policies/',
+            '/checkout/',
+            '/cart/',
+            '/payment/',
+            '/pay/',
+            '/order/',
+            '/account/login',
+            '/account/register',
+            '/signin',
+            '/signup',
+            '/login',
+            '/register',
+        }
+
+        # Skip external payment/third-party domains
+        skip_domains = {
+            'payments.klarna.com',
+            'klarna.com',
+            'paypal.com',
+            'pay.google.com',
+            'apple.com/pay',
+            'affirm.com',
+            'afterpay.com',
+            'sezzle.com',
+            'stripe.com',
+            'checkout.shopify.com',
         }
 
         path_lower = path.lower()
-        if any(pattern in path_lower for pattern in skip_patterns):
+
+        # Check path patterns
+        if any(pattern in path_lower for pattern in skip_path_patterns):
             return True
-        return any(path_lower.endswith(ext) for ext in skip_extensions)
+
+        # Check extensions
+        if any(path_lower.endswith(ext) for ext in skip_extensions):
+            return True
+
+        # Check domain if full URL provided
+        if full_url:
+            url_lower = full_url.lower()
+            for domain in skip_domains:
+                if domain in url_lower:
+                    return True
+
+        return False
+
+    def _detect_waf_block(self, status_code: int, html: str, response_headers: dict) -> Optional[str]:
+        """Detect if the response indicates WAF/CDN blocking.
+
+        Args:
+            status_code: HTTP status code
+            html: Page HTML content
+            response_headers: Response headers
+
+        Returns:
+            WAF provider name if blocked, None otherwise
+        """
+        html_lower = html.lower() if html else ""
+
+        # Check status codes that typically indicate blocking
+        blocking_status_codes = {403, 503, 429, 406, 451}
+
+        # Block page content patterns (these indicate actual blocking, not just CDN usage)
+        block_content_patterns = {
+            "cloudflare": [
+                "attention required! | cloudflare",
+                "checking your browser before accessing",
+                "enable javascript and cookies to continue",
+                "ray id:",  # Only in body, not headers
+                "performance & security by cloudflare",
+                "please turn javascript on and reload the page",
+            ],
+            "akamai": [
+                "access denied</title>",
+                "you don't have permission to access",
+                "reference #",  # Akamai error reference
+                "your request has been blocked",
+                "akamai ghost",
+            ],
+            "sucuri": [
+                "sucuri website firewall",
+                "access denied - sucuri",
+                "blocked by sucuri",
+            ],
+            "imperva": [
+                "incapsula incident",
+                "request blocked",
+                "incident id:",
+                "powered by incapsula",
+            ],
+            "aws_waf": [
+                "request blocked by aws waf",
+                "this request was blocked by the security rules",
+            ],
+            "datadome": [
+                "blocked by datadome",
+                "datadome captcha",
+            ],
+            "perimeterx": [
+                "human challenge",
+                "press & hold",
+                "perimeterx",
+            ],
+        }
+
+        # Generic block indicators (content that suggests blocking regardless of provider)
+        generic_block_indicators = [
+            "access denied</title>",
+            "403 forbidden</title>",
+            "blocked</title>",
+            "robot or bot",
+            "automated access",
+            "please verify you are human",
+            "suspicious activity detected",
+            "rate limit exceeded",
+            "too many requests",
+            "you have been blocked",
+            "your ip has been blocked",
+            "security challenge",
+            "complete the captcha",
+            "prove you are not a robot",
+        ]
+
+        # For blocking status codes, check body content
+        if status_code in blocking_status_codes:
+            # Check for specific WAF block pages
+            for waf_name, patterns in block_content_patterns.items():
+                for pattern in patterns:
+                    if pattern in html_lower:
+                        return waf_name
+
+            # Check generic block indicators
+            for indicator in generic_block_indicators:
+                if indicator in html_lower:
+                    return "waf_block"
+
+            # If we got a blocking status code but page has real content, might not be blocked
+            # Check if page has meaningful content (e.g., a real 403 page vs WAF block)
+            if len(html_lower) < 5000 and ("denied" in html_lower or "blocked" in html_lower or "forbidden" in html_lower):
+                return "waf_block"
+
+        # For 200 status, only flag if we see a challenge/interstitial page
+        # These are pages that load but require human interaction
+        challenge_page_indicators = [
+            "please wait while we verify your browser",
+            "checking if the site connection is secure",
+            "please enable javascript and cookies",
+            "just a moment...</title>",
+            "ddos protection by",
+            "please complete the security check to access",
+            "one more step</title>",
+            "browser verification</title>",
+        ]
+
+        if status_code == 200:
+            for indicator in challenge_page_indicators:
+                if indicator in html_lower:
+                    # Identify the WAF if possible
+                    for waf_name, patterns in block_content_patterns.items():
+                        for pattern in patterns:
+                            if pattern in html_lower:
+                                return waf_name
+                    return "challenge_page"
+
+        return None
 
     def get_crawl_summary(self) -> dict:
         """Get a summary of the crawl results.

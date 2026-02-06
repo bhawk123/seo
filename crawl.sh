@@ -38,6 +38,9 @@ if [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ -z "$1" ]; then
 fi
 
 SITE=$1
+# Strip https:// or http:// if provided
+SITE="${SITE#https://}"
+SITE="${SITE#http://}"
 shift
 
 # Check if remaining args look like flags (start with --)

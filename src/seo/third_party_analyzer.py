@@ -6,9 +6,18 @@ When per-resource sizes become available, enable per-domain byte tracking.
 """
 
 from collections import defaultdict
-from typing import Dict, List, Optional, Set
+from datetime import datetime
+from typing import Dict, List, Optional, Set, Tuple
 
-from seo.models import PageMetadata, ThirdPartyAnalysis, ThirdPartyDomain
+from seo.models import (
+    PageMetadata,
+    ThirdPartyAnalysis,
+    ThirdPartyDomain,
+    EvidenceRecord,
+    EvidenceCollection,
+    ConfidenceLevel,
+    EvidenceSourceType,
+)
 from seo.config import AnalysisThresholds, default_thresholds
 
 
@@ -64,6 +73,7 @@ class ThirdPartyAnalyzer:
         self.advertising_domains = advertising_domains or self.DEFAULT_ADVERTISING_DOMAINS
         self.cdn_domains = cdn_domains or self.DEFAULT_CDN_DOMAINS
         self.social_domains = social_domains or self.DEFAULT_SOCIAL_DOMAINS
+        self._evidence_collection: Optional[EvidenceCollection] = None
 
     @property
     def high_weight_percentage(self) -> float:
@@ -75,17 +85,22 @@ class ThirdPartyAnalyzer:
         """Number of requests per page considered 'high'."""
         return self.thresholds.third_party_high_requests
 
-    def analyze(self, pages: Dict[str, PageMetadata]) -> ThirdPartyAnalysis:
+    def analyze(self, pages: Dict[str, PageMetadata]) -> Tuple[ThirdPartyAnalysis, Dict]:
         """Analyze third-party resource usage.
 
         Args:
             pages: Dictionary mapping URLs to PageMetadata
 
         Returns:
-            ThirdPartyAnalysis with third-party metrics
+            Tuple of (ThirdPartyAnalysis, evidence_dict)
         """
+        self._evidence_collection = EvidenceCollection(
+            finding='third_party_analysis',
+            component_id='third_party_analyzer',
+        )
+
         if not pages:
-            return ThirdPartyAnalysis()
+            return ThirdPartyAnalysis(), self._evidence_collection.to_dict()
 
         analysis = ThirdPartyAnalysis(total_pages=len(pages))
 
@@ -174,7 +189,12 @@ class ThirdPartyAnalyzer:
         # Generate recommendations
         analysis.recommendations = self._generate_recommendations(analysis)
 
-        return analysis
+        # Add evidence for domain categories and impact
+        self._add_category_evidence(analysis)
+        self._add_high_impact_evidence(analysis)
+        self._add_summary_evidence(analysis)
+
+        return analysis, self._evidence_collection.to_dict()
 
     def _extract_base_domain(self, domain: str) -> str:
         """Extract base domain, handling common TLDs.
@@ -274,3 +294,163 @@ class ThirdPartyAnalyzer:
             )
 
         return recommendations
+
+    def _add_category_evidence(self, analysis: ThirdPartyAnalysis) -> None:
+        """Add evidence for third-party domain categorization.
+
+        Args:
+            analysis: The analysis object
+        """
+        # Build category totals
+        categories = {
+            'analytics': {
+                'domains': analysis.analytics_domains,
+                'count': len(analysis.analytics_domains),
+            },
+            'ads': {
+                'domains': analysis.advertising_domains,
+                'count': len(analysis.advertising_domains),
+            },
+            'cdn': {
+                'domains': analysis.cdn_domains,
+                'count': len(analysis.cdn_domains),
+            },
+            'social': {
+                'domains': analysis.social_domains,
+                'count': len(analysis.social_domains),
+            },
+            'unknown': {
+                'domains': analysis.other_domains[:10],  # First 10 for brevity
+                'count': len(analysis.other_domains),
+            },
+        }
+
+        record = EvidenceRecord(
+            component_id='third_party_analyzer',
+            finding='domain_categories',
+            evidence_string=f'Analytics: {len(analysis.analytics_domains)}, Ads: {len(analysis.advertising_domains)}, CDN: {len(analysis.cdn_domains)}, Social: {len(analysis.social_domains)}',
+            confidence=ConfidenceLevel.HIGH,
+            timestamp=datetime.now(),
+            source='Third-Party Domain Analysis',
+            source_type=EvidenceSourceType.CALCULATION,
+            source_location='aggregate',
+            measured_value=categories,
+            ai_generated=False,
+            reasoning='Categorized third-party domains by purpose',
+            input_summary={
+                'known_analytics_domains': len(self.analytics_domains),
+                'known_ad_domains': len(self.advertising_domains),
+                'known_cdn_domains': len(self.cdn_domains),
+                'known_social_domains': len(self.social_domains),
+            },
+        )
+        self._evidence_collection.add_record(record)
+
+        # Add evidence for unknown domains
+        if analysis.other_domains:
+            record = EvidenceRecord(
+                component_id='third_party_analyzer',
+                finding='unknown_domains',
+                evidence_string=f'{len(analysis.other_domains)} unrecognized third-party domains',
+                confidence=ConfidenceLevel.HIGH,
+                timestamp=datetime.now(),
+                source='Third-Party Domain Analysis',
+                source_type=EvidenceSourceType.MEASUREMENT,
+                source_location='aggregate',
+                measured_value={
+                    'category': 'unknown',
+                    'count': len(analysis.other_domains),
+                    'domains': analysis.other_domains[:10],
+                },
+                ai_generated=False,
+                reasoning='Domains not in known category lists',
+            )
+            self._evidence_collection.add_record(record)
+
+    def _add_high_impact_evidence(self, analysis: ThirdPartyAnalysis) -> None:
+        """Add evidence for high-impact third-party usage.
+
+        Args:
+            analysis: The analysis object
+        """
+        # Check for high page weight percentage
+        if analysis.third_party_weight_percentage > self.high_weight_percentage:
+            record = EvidenceRecord(
+                component_id='third_party_analyzer',
+                finding='high_impact_weight',
+                evidence_string=f'Third-party resources account for {analysis.third_party_weight_percentage}% of page weight',
+                confidence=ConfidenceLevel.HIGH,
+                timestamp=datetime.now(),
+                source='Third-Party Performance Analysis',
+                source_type=EvidenceSourceType.CALCULATION,
+                source_location='aggregate',
+                measured_value={
+                    'percentage': analysis.third_party_weight_percentage,
+                    'threshold': self.high_weight_percentage,
+                    'total_bytes': analysis.total_third_party_bytes,
+                },
+                ai_generated=False,
+                reasoning=f'Exceeds threshold of {self.high_weight_percentage}%',
+                input_summary={
+                    'recommendation': 'Consider self-hosting critical resources',
+                },
+            )
+            self._evidence_collection.add_record(record)
+
+        # Check for high request count
+        if analysis.avg_third_party_requests_per_page > self.high_requests_threshold:
+            record = EvidenceRecord(
+                component_id='third_party_analyzer',
+                finding='high_request_count',
+                evidence_string=f'Average {analysis.avg_third_party_requests_per_page} third-party requests per page',
+                confidence=ConfidenceLevel.HIGH,
+                timestamp=datetime.now(),
+                source='Third-Party Performance Analysis',
+                source_type=EvidenceSourceType.CALCULATION,
+                source_location='aggregate',
+                measured_value={
+                    'avg_requests': analysis.avg_third_party_requests_per_page,
+                    'threshold': self.high_requests_threshold,
+                    'total_requests': analysis.total_third_party_requests,
+                },
+                ai_generated=False,
+                reasoning=f'Exceeds threshold of {self.high_requests_threshold} requests',
+            )
+            self._evidence_collection.add_record(record)
+
+    def _add_summary_evidence(self, analysis: ThirdPartyAnalysis) -> None:
+        """Add summary evidence for third-party analysis.
+
+        Args:
+            analysis: The completed analysis object
+        """
+        record = EvidenceRecord(
+            component_id='third_party_analyzer',
+            finding='third_party_summary',
+            evidence_string=f'{len(analysis.domains)} domains, {analysis.total_third_party_requests} requests, {round(analysis.total_third_party_bytes / 1024, 1)}KB',
+            confidence=ConfidenceLevel.HIGH,
+            timestamp=datetime.now(),
+            source='Third-Party Analysis',
+            source_type=EvidenceSourceType.CALCULATION,
+            source_location='aggregate',
+            measured_value={
+                'total_domains': len(analysis.domains),
+                'total_requests': analysis.total_third_party_requests,
+                'total_bytes': analysis.total_third_party_bytes,
+                'total_kb': round(analysis.total_third_party_bytes / 1024, 1),
+                'pages_with_third_party': analysis.pages_with_third_party,
+                'third_party_weight_percentage': analysis.third_party_weight_percentage,
+                'avg_requests_per_page': analysis.avg_third_party_requests_per_page,
+                'avg_bytes_per_page': analysis.avg_third_party_bytes_per_page,
+                'top_domains': analysis.top_by_requests[:5],
+            },
+            ai_generated=False,
+            reasoning='Summary of all third-party resource usage',
+            input_summary={
+                'thresholds': {
+                    'high_weight_percentage': self.high_weight_percentage,
+                    'high_requests_threshold': self.high_requests_threshold,
+                },
+            },
+        )
+        self._evidence_collection.add_record(record)

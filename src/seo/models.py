@@ -1,9 +1,273 @@
 """Data models for SEO analysis."""
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Any, Literal
 from datetime import datetime
+from enum import Enum
 
+
+# ============================================================================
+# Evidence Trail Models
+# ============================================================================
+
+class ConfidenceLevel(str, Enum):
+    """Confidence levels for evidence-backed evaluations."""
+    HIGH = "High"
+    MEDIUM = "Medium"
+    LOW = "Low"
+    ESTIMATE = "Estimate"
+
+
+class EvidenceSourceType(str, Enum):
+    """Types of evidence sources."""
+    HTML_CONTENT = "html_content"
+    HTML_ATTRIBUTE = "html_attribute"
+    SCRIPT_SRC = "script_src"
+    LINK_HREF = "link_href"
+    HTTP_HEADER = "http_header"
+    META_TAG = "meta_tag"
+    API_RESPONSE = "api_response"
+    CALCULATION = "calculation"
+    PATTERN_MATCH = "pattern_match"
+    LLM_INFERENCE = "llm_inference"
+    HEURISTIC = "heuristic"
+    MEASUREMENT = "measurement"
+
+
+@dataclass
+class EvidenceRecord:
+    """Standardized evidence container for all evaluations.
+
+    This dataclass captures the evidence trail for any finding, evaluation,
+    or conclusion made by the SEO analysis tool. It provides transparency
+    and auditability, especially critical for AI-generated content.
+
+    Attributes:
+        component_id: Identifier for the analysis component (e.g., 'technology_detection',
+                      'technical_seo', 'content_quality', 'llm_scoring')
+        finding: The conclusion or detection result (e.g., 'Magento/Adobe Commerce', 'missing_meta_description')
+        evidence_string: The raw matched/observed data (e.g., 'mage/cookies.js', actual meta text)
+        confidence: Confidence level of the finding (High/Medium/Low/Estimate)
+        timestamp: When this evidence was captured
+        source: The data source (e.g., 'Lighthouse', 'Pattern Match', 'LLM Heuristic', 'CrUX')
+
+        # Optional enrichment fields
+        source_type: Category of evidence source (html, header, api, etc.)
+        source_location: Specific location (URL, header name, line number, etc.)
+        pattern_matched: The regex/pattern that triggered detection (if applicable)
+        threshold: The threshold used for comparison (if applicable)
+        measured_value: The actual measured/observed value
+        unit: Unit of measurement (chars, words, ms, bytes, etc.)
+        recommendation: Suggested action based on this finding
+
+        # AI-specific metadata (for hallucination mitigation)
+        ai_generated: Whether this evaluation was AI/LLM-generated
+        model_id: The LLM model used (e.g., 'gpt-4', 'claude-3')
+        prompt_hash: Hash of the prompt for reproducibility
+        reasoning: LLM's explanation for this evaluation
+        input_summary: Summary of data provided to the LLM
+    """
+
+    # Required fields
+    component_id: str
+    finding: str
+    evidence_string: str
+    confidence: ConfidenceLevel
+    timestamp: datetime
+    source: str
+
+    # Optional enrichment fields
+    source_type: Optional[EvidenceSourceType] = None
+    source_location: Optional[str] = None
+    pattern_matched: Optional[str] = None
+    threshold: Optional[dict] = None  # {'operator': '<', 'value': 300, 'unit': 'words'}
+    measured_value: Optional[Any] = None
+    unit: Optional[str] = None
+    recommendation: Optional[str] = None
+    severity: Optional[str] = None  # 'critical', 'warning', 'info'
+
+    # AI-specific metadata
+    ai_generated: bool = False
+    model_id: Optional[str] = None
+    prompt_hash: Optional[str] = None
+    reasoning: Optional[str] = None
+    input_summary: Optional[dict] = None
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'component_id': self.component_id,
+            'finding': self.finding,
+            'evidence_string': self.evidence_string,
+            'confidence': self.confidence.value if isinstance(self.confidence, ConfidenceLevel) else self.confidence,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'source': self.source,
+            'source_type': self.source_type.value if self.source_type else None,
+            'source_location': self.source_location,
+            'pattern_matched': self.pattern_matched,
+            'threshold': self.threshold,
+            'measured_value': self.measured_value,
+            'unit': self.unit,
+            'recommendation': self.recommendation,
+            'severity': self.severity,
+            'ai_generated': self.ai_generated,
+            'model_id': self.model_id,
+            'prompt_hash': self.prompt_hash,
+            'reasoning': self.reasoning,
+            'input_summary': self.input_summary,
+        }
+
+    @classmethod
+    def from_pattern_match(
+        cls,
+        component_id: str,
+        finding: str,
+        matched_string: str,
+        pattern: str,
+        source_location: str,
+        source_type: EvidenceSourceType = EvidenceSourceType.PATTERN_MATCH,
+    ) -> 'EvidenceRecord':
+        """Factory method for pattern-match based evidence."""
+        return cls(
+            component_id=component_id,
+            finding=finding,
+            evidence_string=matched_string,
+            confidence=ConfidenceLevel.HIGH,
+            timestamp=datetime.now(),
+            source='Pattern Match',
+            source_type=source_type,
+            source_location=source_location,
+            pattern_matched=pattern,
+        )
+
+    @classmethod
+    def from_threshold_check(
+        cls,
+        component_id: str,
+        finding: str,
+        measured_value: Any,
+        threshold_operator: str,
+        threshold_value: Any,
+        unit: str,
+        source_location: str,
+        passed: bool = False,
+    ) -> 'EvidenceRecord':
+        """Factory method for threshold-based evidence."""
+        return cls(
+            component_id=component_id,
+            finding=finding,
+            evidence_string=f"{measured_value} {unit}",
+            confidence=ConfidenceLevel.HIGH,
+            timestamp=datetime.now(),
+            source='Threshold Check',
+            source_type=EvidenceSourceType.CALCULATION,
+            source_location=source_location,
+            threshold={'operator': threshold_operator, 'value': threshold_value, 'unit': unit},
+            measured_value=measured_value,
+            unit=unit,
+            severity='info' if passed else 'warning',
+        )
+
+    @classmethod
+    def from_api_response(
+        cls,
+        component_id: str,
+        finding: str,
+        api_source: str,
+        value: Any,
+        api_version: Optional[str] = None,
+    ) -> 'EvidenceRecord':
+        """Factory method for API-sourced evidence (e.g., Lighthouse, CrUX)."""
+        return cls(
+            component_id=component_id,
+            finding=finding,
+            evidence_string=str(value),
+            confidence=ConfidenceLevel.HIGH,
+            timestamp=datetime.now(),
+            source=api_source,
+            source_type=EvidenceSourceType.API_RESPONSE,
+            measured_value=value,
+        )
+
+    @classmethod
+    def from_llm(
+        cls,
+        component_id: str,
+        finding: str,
+        model_id: str,
+        reasoning: Optional[str] = None,
+        input_summary: Optional[dict] = None,
+        prompt_hash: Optional[str] = None,
+    ) -> 'EvidenceRecord':
+        """Factory method for LLM-generated evidence."""
+        return cls(
+            component_id=component_id,
+            finding=finding,
+            evidence_string=reasoning or 'AI-generated evaluation',
+            confidence=ConfidenceLevel.LOW,  # LLM evaluations always start at LOW
+            timestamp=datetime.now(),
+            source='LLM Inference',
+            source_type=EvidenceSourceType.LLM_INFERENCE,
+            ai_generated=True,
+            model_id=model_id,
+            prompt_hash=prompt_hash,
+            reasoning=reasoning,
+            input_summary=input_summary,
+        )
+
+
+@dataclass
+class EvidenceCollection:
+    """Collection of evidence records for a single evaluation or finding.
+
+    Used when multiple pieces of evidence support a single conclusion.
+    """
+
+    finding: str
+    component_id: str
+    records: list[EvidenceRecord] = field(default_factory=list)
+    combined_confidence: ConfidenceLevel = ConfidenceLevel.MEDIUM
+
+    def add_record(self, record: EvidenceRecord) -> None:
+        """Add an evidence record to the collection."""
+        self.records.append(record)
+        self._update_confidence()
+
+    def _update_confidence(self) -> None:
+        """Update combined confidence based on all records."""
+        if not self.records:
+            self.combined_confidence = ConfidenceLevel.LOW
+            return
+
+        # If any record is AI-generated, cap confidence at MEDIUM
+        has_ai = any(r.ai_generated for r in self.records)
+
+        # If multiple high-confidence records, boost confidence
+        high_count = sum(1 for r in self.records if r.confidence == ConfidenceLevel.HIGH)
+
+        if has_ai:
+            self.combined_confidence = ConfidenceLevel.MEDIUM
+        elif high_count >= 2:
+            self.combined_confidence = ConfidenceLevel.HIGH
+        elif high_count == 1:
+            self.combined_confidence = ConfidenceLevel.HIGH
+        else:
+            self.combined_confidence = ConfidenceLevel.MEDIUM
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'finding': self.finding,
+            'component_id': self.component_id,
+            'records': [r.to_dict() for r in self.records],
+            'combined_confidence': self.combined_confidence.value,
+            'record_count': len(self.records),
+        }
+
+
+# ============================================================================
+# Page and Content Models
+# ============================================================================
 
 @dataclass
 class PageMetadata:
