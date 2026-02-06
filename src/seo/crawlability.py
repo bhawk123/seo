@@ -544,7 +544,6 @@ class CrawlabilityAnalyzer:
                 'orphan_pages': len(score.orphan_pages),
                 'broken_links': score.broken_links_count,
             },
-            ai_generated=False,
             reasoning='Summary of all crawlability factors',
             input_summary={
                 'score_breakdown': {

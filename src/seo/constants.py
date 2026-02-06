@@ -76,6 +76,12 @@ DEFAULT_MAX_RETRIES = 3
 # Base for exponential backoff calculation
 EXPONENTIAL_BACKOFF_BASE = 2
 
+# Initial backoff delay in seconds
+INITIAL_BACKOFF_DELAY_SECONDS = 2.0
+
+# Maximum backoff delay in seconds (cap for exponential growth)
+MAX_BACKOFF_DELAY_SECONDS = 30.0
+
 # HTTP status codes that trigger user-agent rotation
 HTTP_CODES_TRIGGER_UA_ROTATION = [401, 403]
 

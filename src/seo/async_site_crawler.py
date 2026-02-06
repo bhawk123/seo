@@ -38,6 +38,10 @@ from seo.constants import (
     LCP_POOR_SECONDS,
     CLS_GOOD_THRESHOLD,
     CLS_POOR_THRESHOLD,
+    DEFAULT_MAX_RETRIES,
+    EXPONENTIAL_BACKOFF_BASE,
+    INITIAL_BACKOFF_DELAY_SECONDS,
+    MAX_BACKOFF_DELAY_SECONDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -181,13 +185,22 @@ class AsyncSiteCrawler:
                 (item["url"], item["depth"]) for item in resume_state.get("queue", [])
             )
             self._started_at = resume_state.get("progress", {}).get("started_at")
-            logger.info(f"Resuming crawl with {len(self.visited_urls)} pages already crawled")
+            # Restore failed URLs and retry counts
+            self.failed_urls = resume_state.get("failed_urls", {})
+            self.retry_counts = resume_state.get("retry_counts", {})
+            logger.info(
+                f"Resuming crawl with {len(self.visited_urls)} pages crawled, "
+                f"{len(self.failed_urls)} failed"
+            )
         else:
             self.visited_urls: Set[str] = set()
             self.queue: deque = deque()
             self._started_at = datetime.now().isoformat()
 
         self.site_data: Dict[str, PageMetadata] = {}
+        self.failed_urls: Dict[str, dict] = {}  # Track permanently failed URLs
+        self.retry_counts: Dict[str, int] = {}  # Track retry attempts per URL
+        self.max_retries = DEFAULT_MAX_RETRIES
 
         # Load existing page data from disk when resuming
         if resume_state and crawl_dir:
@@ -287,6 +300,7 @@ class AsyncSiteCrawler:
             },
             "progress": {
                 "pages_crawled": len(self.visited_urls),
+                "pages_failed": len(self.failed_urls),
                 "started_at": self._started_at,
                 "last_updated": datetime.now().isoformat(),
             },
@@ -294,6 +308,8 @@ class AsyncSiteCrawler:
             "queue": [
                 {"url": url, "depth": depth} for url, depth in self.queue
             ],
+            "failed_urls": self.failed_urls,
+            "retry_counts": self.retry_counts,
         }
 
     def _save_checkpoint(self, status: str = "running") -> None:
@@ -508,6 +524,13 @@ class AsyncSiteCrawler:
 
         logger.info(f"\n{'=' * 60}")
         logger.info(f"Crawl complete! Processed {len(self.site_data)} pages")
+        if self.failed_urls:
+            logger.info(f"Failed pages: {len(self.failed_urls)} (after retries)")
+        if sum(self.retry_counts.values()) > 0:
+            logger.info(
+                f"Retry stats: {sum(self.retry_counts.values())} retries "
+                f"across {len(self.retry_counts)} URLs"
+            )
         if self._psi_count > 0:
             logger.info(f"PageSpeed Insights: {self._psi_count} pages analyzed")
         logger.info(f"{'=' * 60}\n")
@@ -819,6 +842,111 @@ class AsyncSiteCrawler:
                 pass
         self._pages_created = 0
 
+    def _calculate_backoff_delay(self, retry_count: int) -> float:
+        """Calculate exponential backoff delay with jitter.
+
+        Args:
+            retry_count: Number of retries already attempted (0-indexed)
+
+        Returns:
+            Delay in seconds before next retry
+        """
+        # Exponential backoff: base_delay * (2 ^ retry_count)
+        delay = INITIAL_BACKOFF_DELAY_SECONDS * (EXPONENTIAL_BACKOFF_BASE ** retry_count)
+        # Cap at maximum delay
+        delay = min(delay, MAX_BACKOFF_DELAY_SECONDS)
+        # Add jitter (±25%) to prevent thundering herd
+        jitter = delay * random.uniform(-0.25, 0.25)
+        return delay + jitter
+
+    def _should_retry(self, url: str, error: Exception) -> bool:
+        """Determine if a failed URL should be retried.
+
+        Args:
+            url: The URL that failed
+            error: The exception that occurred
+
+        Returns:
+            True if the URL should be retried
+        """
+        # Don't retry if max retries exceeded
+        current_retries = self.retry_counts.get(url, 0)
+        if current_retries >= self.max_retries:
+            return False
+
+        # Don't retry for certain error types that won't resolve
+        error_str = str(error).lower()
+
+        # These errors are unlikely to resolve with retry
+        non_retryable_patterns = [
+            "net::err_name_not_resolved",  # DNS failure
+            "net::err_connection_refused",  # Server not accepting connections
+            "invalid url",
+            "protocol error",
+        ]
+
+        for pattern in non_retryable_patterns:
+            if pattern in error_str:
+                return False
+
+        # Retry for timeouts, connection resets, and other transient errors
+        return True
+
+    def _record_failure(self, url: str, error: Exception, level: int) -> None:
+        """Record a permanently failed URL.
+
+        Args:
+            url: The URL that failed
+            error: The exception that occurred
+            level: The crawl level where failure occurred
+        """
+        self.failed_urls[url] = {
+            "url": url,
+            "error": str(error)[:500],
+            "error_type": type(error).__name__,
+            "level": level,
+            "retries": self.retry_counts.get(url, 0),
+            "failed_at": datetime.now().isoformat(),
+        }
+        logger.warning(
+            f"  ❌ Permanently failed after {self.retry_counts.get(url, 0)} retries: {url}"
+        )
+
+    async def _handle_crawl_error(
+        self, url: str, error: Exception, level: int
+    ) -> None:
+        """Handle a crawl error with retry logic.
+
+        Args:
+            url: The URL that failed
+            error: The exception that occurred
+            level: The crawl level where failure occurred
+        """
+        # Remove from visited so it can be retried
+        self.visited_urls.discard(url)
+
+        if self._should_retry(url, error):
+            # Increment retry count
+            current_retries = self.retry_counts.get(url, 0)
+            self.retry_counts[url] = current_retries + 1
+
+            # Calculate backoff delay
+            backoff_delay = self._calculate_backoff_delay(current_retries)
+
+            logger.info(
+                f"  🔄 Will retry ({current_retries + 1}/{self.max_retries}) "
+                f"after {backoff_delay:.1f}s: {url}"
+            )
+
+            # Wait for backoff delay before requeuing
+            await asyncio.sleep(backoff_delay)
+
+            # Add back to queue at the same level (prioritize retries)
+            self.queue.appendleft((url, level))
+        else:
+            # Record permanent failure
+            self._record_failure(url, error, level)
+
     async def _crawl_page(
         self,
         url: str,
@@ -1041,16 +1169,19 @@ class AsyncSiteCrawler:
                 self.timing_data.append(timing)
                 timing.log_summary()
 
-            except asyncio.TimeoutError:
+            except asyncio.TimeoutError as e:
                 logger.error(f"  ⚠️  Timeout crawling {url}")
+                await self._handle_crawl_error(url, e, level)
             except Exception as e:
                 error_str = str(e).lower()
                 # Detect browser/session crashes
                 if "target" in error_str and "closed" in error_str:
                     self._session_errors += 3  # Fast-track recovery
                     logger.warning(f"  ⚠️  Session crashed: {url}")
+                    await self._handle_crawl_error(url, e, level)
                 else:
-                    logger.exception(f"  ⚠️  Unexpected error crawling {url}: {e}")
+                    logger.error(f"  ⚠️  Unexpected error crawling {url}: {e}")
+                    await self._handle_crawl_error(url, e, level)
             finally:
                 # Remove event handlers to prevent memory leaks
                 if page:
@@ -1992,7 +2123,11 @@ class AsyncSiteCrawler:
             Dictionary with crawl statistics
         """
         if not self.site_data:
-            return {}
+            return {
+                'total_pages': 0,
+                'failed_pages': len(self.failed_urls),
+                'failed_urls': list(self.failed_urls.keys()),
+            }
 
         total_words = sum(page.word_count for page in self.site_data.values())
         total_images = sum(page.total_images for page in self.site_data.values())
@@ -2001,6 +2136,12 @@ class AsyncSiteCrawler:
             if not page.title or not page.description or not page.h1_tags
         )
 
+        # Group failed URLs by error type
+        failed_by_type: Dict[str, int] = {}
+        for info in self.failed_urls.values():
+            error_type = info.get("error_type", "Unknown")
+            failed_by_type[error_type] = failed_by_type.get(error_type, 0) + 1
+
         return {
             'total_pages': len(self.site_data),
             'total_words': total_words,
@@ -2008,4 +2149,11 @@ class AsyncSiteCrawler:
             'total_images': total_images,
             'pages_with_issues': pages_with_issues,
             'urls_crawled': list(self.site_data.keys()),
+            'failed_pages': len(self.failed_urls),
+            'failed_urls': list(self.failed_urls.keys()),
+            'failed_by_error_type': failed_by_type,
+            'retry_stats': {
+                'total_retries': sum(self.retry_counts.values()),
+                'urls_retried': len(self.retry_counts),
+            },
         }
