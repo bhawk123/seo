@@ -246,3 +246,83 @@ Feature: Performance Metrics Evidence
     And Lighthouse data is available
     Then lab metrics should be displayed with source "lighthouse"
     And field comparison should show "No field data available"
+
+  # ===========================================================================
+  # Story 3.3: PSI Coverage Requirements
+  # File: src/seo/async_site_crawler.py, backfill_psi.py
+  # ===========================================================================
+
+  @story-3.3.1 @psi-coverage @critical
+  Scenario: PSI coverage meets minimum threshold
+    Given a completed site crawl with 50 pages
+    When PageSpeed Insights analysis is complete
+    Then at least 90% of pages should have Lighthouse data
+    And the report should show PSI coverage percentage
+    And pages without PSI data should be clearly identified
+
+  @story-3.3.1 @psi-coverage @critical
+  Scenario: All pages have PSI data by default
+    Given the crawler is run with default settings
+    And --psi-sample is set to 1.0 (100%)
+    When the crawl completes
+    Then every crawled page should have Lighthouse data
+    Or failed PSI requests should be logged with reasons
+
+  @story-3.3.2 @psi-coverage @retry
+  Scenario: Failed PSI requests are retried
+    Given a page PSI request fails due to timeout
+    When the crawler encounters the failure
+    Then the request should be retried up to 3 times
+    And exponential backoff should be applied between retries
+    And the final failure should be logged with error details
+
+  @story-3.3.2 @psi-coverage @retry
+  Scenario: Rate limit errors trigger appropriate wait
+    Given the PSI API returns a 429 rate limit error
+    When the crawler handles the error
+    Then the crawler should wait for the rate limit window to reset
+    And the request should be retried after waiting
+    And rate limit events should be logged
+
+  @story-3.3.3 @psi-coverage @backfill
+  Scenario: Backfill script identifies missing PSI data
+    Given a crawl directory with 50 pages
+    And 28 pages have Lighthouse data
+    When the backfill_psi.py script runs with --dry-run
+    Then it should identify 22 pages missing PSI data
+    And it should list the URLs that need backfilling
+
+  @story-3.3.3 @psi-coverage @backfill
+  Scenario: Backfill script fetches missing PSI data
+    Given a crawl directory with pages missing Lighthouse data
+    And GOOGLE_PSI_API_KEY is configured
+    When the backfill_psi.py script runs
+    Then it should fetch PSI data for each missing page
+    And save results to the lighthouse directory
+    And update page metadata with Lighthouse scores
+
+  @story-3.3.3 @psi-coverage @backfill
+  Scenario: Backfill script respects max-pages limit
+    Given a crawl directory with 22 pages missing PSI data
+    When the backfill_psi.py script runs with --max-pages 10
+    Then only 10 pages should be processed
+    And remaining pages should still be identified as missing
+
+  @story-3.3.4 @psi-coverage @report
+  Scenario: Report shows PSI coverage statistics
+    Given a crawl with partial PSI coverage
+    When the report is generated
+    Then the report should display:
+      | metric                  | example_value |
+      | Total pages             | 50            |
+      | Pages with PSI data     | 28            |
+      | PSI coverage percentage | 56%           |
+    And a warning should appear if coverage is below 90%
+
+  @story-3.3.4 @psi-coverage @report
+  Scenario: Health matrix shows N/A for missing Lighthouse data
+    Given a page without Lighthouse data in the crawl
+    When the All Pages Health Matrix is displayed
+    Then the Perf, A11y, and SEO columns should show "N/A"
+    And the N/A cells should be visually distinct (gray styling)
+    And a tooltip should explain "Lighthouse data not available"

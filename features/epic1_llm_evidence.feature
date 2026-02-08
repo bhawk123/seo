@@ -185,6 +185,50 @@ Feature: LLM Evidence Trail
     And the original suggested confidence should be preserved in metadata
 
   # ===========================================================================
+  # Feature 1.3: LLM Recommendations in Reports
+  # File: src/seo/report_generator.py
+  # ===========================================================================
+
+  @story-1.3.1 @report-generation @critical
+  Scenario: Report contains LLM-generated recommendations by default
+    Given a completed site crawl with technical issues data
+    When the report is generated
+    Then the report should contain an "LLM Recommendations" section
+    And the recommendations should include ICE framework scores
+    And the recommendations should NOT contain "Failed to generate" error messages
+    And the recommendations should include at least one actionable item
+
+  @story-1.3.1 @report-generation @critical
+  Scenario: LLM recommendations section displays structured content
+    Given a completed site crawl
+    When the LLM recommendations are generated successfully
+    Then the report should display:
+      | section                      |
+      | Critical Issues              |
+      | Quick Wins                   |
+      | Content Optimization         |
+      | Technical SEO Improvements   |
+      | Prioritized 30-Day Action Plan |
+    And each recommendation should include ICE scores in format "[I:X C:X E:X = ICE:X.X]"
+
+  @story-1.3.2 @report-generation @retry
+  Scenario: Report generation retries LLM on connection failure
+    Given a site crawl is complete
+    And the LLM API returns a connection error on first attempt
+    When the report is generated
+    Then the system should retry the LLM call up to 3 times
+    And if all retries fail, the report should include a clear error message
+    And the error message should suggest running regenerate_recommendations.py
+
+  @story-1.3.3 @report-generation @fallback
+  Scenario: Report regeneration updates existing report with LLM content
+    Given a report exists with "Failed to generate LLM recommendations" error
+    When regenerate_recommendations.py is run against the crawl directory
+    Then the recommendations.txt file should be created
+    And the report.html can be regenerated with the new recommendations
+    And the "Failed to generate" message should be replaced with actual content
+
+  # ===========================================================================
   # Edge Cases and Error Handling
   # ===========================================================================
 

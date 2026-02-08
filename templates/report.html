@@ -357,7 +357,7 @@
 
         .url-cell {
             font-family: 'Courier New', monospace;
-            font-size: 14px;
+            font-size: 15px;
             color: #000000;
             word-break: break-all;
         }
@@ -558,7 +558,7 @@
             padding: 2px 6px;
             border-radius: 0;
             font-family: 'Courier New', monospace;
-            font-size: 14px;
+            font-size: 15px;
             color: #000000;
         }
 
@@ -1903,7 +1903,17 @@
                 <!-- Lighthouse Analysis -->
                 {% if lighthouse_analysis and lighthouse_analysis.enabled %}
                 <h3 style="margin-top: 32px;">Lighthouse Scores</h3>
-                <p style="color: var(--ne-text-secondary); font-size: 14px; margin-bottom: 16px;">{{ lighthouse_analysis.pages_audited }} of {{ lighthouse_analysis.total_pages }} pages analyzed</p>
+                <p style="color: var(--ne-text-secondary); font-size: 14px; margin-bottom: 8px;">
+                    {{ lighthouse_analysis.pages_audited }} of {{ lighthouse_analysis.total_pages }} pages analyzed
+                    ({{ lighthouse_analysis.coverage_percentage|round(0)|int }}% coverage)
+                </p>
+                {% if lighthouse_analysis.coverage_percentage < 90 %}
+                <div style="background: #fefcbf; border-left: 4px solid #d69e2e; padding: 12px 16px; margin-bottom: 16px;">
+                    <strong style="color: #744210;">Low PSI Coverage Warning:</strong>
+                    <span style="color: #744210;">{{ lighthouse_analysis.total_pages - lighthouse_analysis.pages_audited }} pages are missing Lighthouse data.
+                    Run <code style="background: #edf2f7; padding: 2px 6px; font-size: 13px;">python backfill_psi.py &lt;crawl_dir&gt;</code> to fetch missing data.</span>
+                </div>
+                {% endif %}
 
                 <div class="analysis-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;">
                     <div class="analysis-card" style="text-align: center;">
@@ -2333,21 +2343,21 @@
                                     <span style="{% if page.perf_score >= 90 %}color: #22543d;{% elif page.perf_score >= 50 %}color: #744210;{% else %}color: #822727;{% endif %}">
                                         {{ page.perf_score|round(0)|int }}
                                     </span>
-                                    {% else %}-{% endif %}
+                                    {% else %}<span style="color: #a0aec0; font-size: 11px;" title="Lighthouse data not available - run backfill_psi.py to fetch">N/A</span>{% endif %}
                                 </td>
                                 <td style="padding: 10px; text-align: center;">
                                     {% if page.a11y_score is not none %}
                                     <span style="{% if page.a11y_score >= 90 %}color: #22543d;{% elif page.a11y_score >= 50 %}color: #744210;{% else %}color: #822727;{% endif %}">
                                         {{ page.a11y_score|round(0)|int }}
                                     </span>
-                                    {% else %}-{% endif %}
+                                    {% else %}<span style="color: #a0aec0; font-size: 11px;" title="Lighthouse data not available - run backfill_psi.py to fetch">N/A</span>{% endif %}
                                 </td>
                                 <td style="padding: 10px; text-align: center;">
                                     {% if page.seo_score is not none %}
                                     <span style="{% if page.seo_score >= 90 %}color: #22543d;{% elif page.seo_score >= 50 %}color: #744210;{% else %}color: #822727;{% endif %}">
                                         {{ page.seo_score|round(0)|int }}
                                     </span>
-                                    {% else %}-{% endif %}
+                                    {% else %}<span style="color: #a0aec0; font-size: 11px;" title="Lighthouse data not available - run backfill_psi.py to fetch">N/A</span>{% endif %}
                                 </td>
                                 <td style="padding: 10px; text-align: center; {% if page.word_count < 300 %}color: #c53030;{% endif %}">
                                     {{ page.word_count }}
