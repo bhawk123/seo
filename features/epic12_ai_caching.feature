@@ -268,3 +268,101 @@ Feature: AI Response Caching
     When put() is called
     Then the response should be stored
     And size limit enforcement should trigger if needed
+
+  # ===========================================================================
+  # Feature 12.2: AICache Interaction with Stale Data
+  # Story 12.2.1: Cache Freshness and Selector Interaction
+  # ===========================================================================
+
+  @story-12.2.1 @stale-data @selector-interaction
+  Scenario: Stale SelectorEntry triggers related cache invalidation
+    Given a SelectorEntry for "email_field" is marked as stale
+    And cached LLM responses reference form interactions with "email_field"
+    When stale data cleanup runs
+    Then related cache entries should be invalidated
+    And fresh LLM analysis should be triggered on next request
+
+  @story-12.2.1 @stale-data @selector-interaction
+  Scenario: Expired SelectorEntry propagates to dependent caches
+    Given SelectorEntry "#old-form" expired 7 days ago
+    And AICache has entries that depend on form analysis using "#old-form"
+    When the system detects the expired selector
+    Then dependent cache entries should be marked for refresh
+    And a flag should indicate "requires_re-analysis"
+
+  @story-12.2.1 @stale-data @selector-interaction
+  Scenario: Cache freshness checked before returning hit
+    Given a cache entry was created 20 hours ago
+    And TTL is 24 hours
+    And the source page has been modified since cache creation
+    When get() is called
+    Then the cache should verify content freshness
+    And if page changed, should return None (forcing refresh)
+
+  # ===========================================================================
+  # Feature 12.2: AICache Interaction with Stale Data
+  # Story 12.2.2: LRU Eviction Impact on Critical Data
+  # ===========================================================================
+
+  @story-12.2.2 @lru-eviction @critical-data
+  Scenario: LRU eviction considers selector importance
+    Given cache is at capacity
+    And some entries are related to high-confidence selectors
+    And some entries are related to low-confidence selectors
+    When LRU eviction runs
+    Then entries for low-confidence selectors should be evicted first
+    And high-confidence selector data should be preserved longer
+
+  @story-12.2.2 @lru-eviction @critical-data
+  Scenario: Frequently accessed entries resist eviction
+    Given entry A was accessed 50 times
+    And entry B was accessed 2 times
+    And entry A is older than entry B
+    When LRU eviction runs
+    Then entry B should be evicted before entry A
+    And access frequency should be weighted
+
+  @story-12.2.2 @lru-eviction @critical-data
+  Scenario: Critical selector data can be pinned
+    Given a SelectorEntry is marked as "critical" (e.g., payment form)
+    And related AICache entries exist
+    When LRU eviction runs
+    Then pinned entries should never be evicted
+    And an alternative entry should be evicted instead
+
+  @story-12.2.2 @lru-eviction @critical-data
+  Scenario: Eviction logs affected selectors
+    Given LRU eviction removes an entry
+    When the entry had selector dependencies
+    Then the eviction should be logged
+    And affected selectors should be noted for re-analysis
+    And metrics should track selector-related evictions
+
+  # ===========================================================================
+  # Feature 12.2: AICache Interaction with Stale Data
+  # Story 12.2.3: Cross-Component Staleness Propagation
+  # ===========================================================================
+
+  @story-12.2.3 @staleness-propagation
+  Scenario: Website structure change invalidates multiple caches
+    Given SelectorLibrary detects major page structure change
+    When propagate_staleness() is called
+    Then AICache entries for affected pages should be invalidated
+    And BrowserPool should be notified to refresh contexts
+    And rate limiter metrics should reset for the domain
+
+  @story-12.2.3 @staleness-propagation
+  Scenario: Staleness events create audit trail
+    Given staleness is detected in SelectorEntry
+    When the staleness propagates to AICache
+    Then an EvidenceRecord should be created
+    And it should document the staleness chain
+    And it should include timestamps and component IDs
+
+  @story-12.2.3 @staleness-propagation
+  Scenario: Selective invalidation based on staleness scope
+    Given SelectorEntry for "checkout_form" becomes stale
+    When invalidation propagates
+    Then only checkout-related cache entries should be invalidated
+    And unrelated entries (e.g., homepage analysis) should be preserved
+    And scope should be determined by component_id matching

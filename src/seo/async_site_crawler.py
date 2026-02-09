@@ -1,6 +1,7 @@
 """Asynchronous site crawler with breadth-first search for multi-page analysis."""
 
 import asyncio
+from contextlib import asynccontextmanager
 import hashlib
 import random
 import time
@@ -23,6 +24,7 @@ from seo.core_web_vitals import CoreWebVitalsAnalyzer
 from seo.structured_data import StructuredDataAnalyzer
 from seo.external.pagespeed_insights import PageSpeedInsightsAPI
 from seo.technology_detector import TechnologyDetector
+from seo.infrastructure import BrowserPool, AdaptiveRateLimiter, RateLimitConfig
 from seo.constants import (
     DEFAULT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_MAX_PAGES_TO_CRAWL,
@@ -143,6 +145,8 @@ class AsyncSiteCrawler:
         psi_sample_rate: float = DEFAULT_PSI_SAMPLE_RATE,
         address_config: Optional[dict] = None,
         ignore_robots: bool = False,
+        browser_pool: Optional[BrowserPool] = None,
+        rate_limiter: Optional[AdaptiveRateLimiter] = None,
     ):
         """Initialize the async site crawler.
 
@@ -162,6 +166,8 @@ class AsyncSiteCrawler:
             psi_strategy: PSI strategy - 'mobile' or 'desktop'
             psi_sample_rate: Fraction of pages to analyze with PSI (0.0-1.0)
             ignore_robots: Ignore robots.txt restrictions
+            browser_pool: Optional BrowserPool for managed browser contexts (Epic 9)
+            rate_limiter: Optional AdaptiveRateLimiter for intelligent rate limiting (Epic 10)
         """
         self.max_pages = max_pages
         self.max_depth = max_depth
@@ -171,6 +177,11 @@ class AsyncSiteCrawler:
         self.timeout = timeout * 1000  # Playwright uses milliseconds
         self.headless = headless
         self.ignore_robots = ignore_robots
+
+        # Epic 9/10: Optional infrastructure components
+        self._browser_pool = browser_pool
+        self._rate_limiter = rate_limiter
+        self._using_pool = browser_pool is not None
 
         # Resume state support
         self._output_manager = output_manager
@@ -482,86 +493,14 @@ class AsyncSiteCrawler:
         logger.info(f"Starting async site crawl from: {start_url}")
         logger.info(f"Max pages: {self.max_pages}, Max concurrent: {self.max_concurrent}")
         logger.info(f"Rate limit: {self.rate_limit}s per domain")
-        logger.info(f"Using rebrowser-playwright (undetected chromium)\n")
 
-        # Launch Playwright browser
-        async with async_playwright() as p:
-            # Store playwright instance for recovery
-            self._playwright = p
-
-            # Minimal launch args - avoid anything that looks like automation
-            self._launch_args = [
-                "--disable-blink-features=AutomationControlled",
-            ]
-
-            # Launch browser and create context
-            await self._launch_browser()
-
-            current_level = 1
-
-            while self.queue and len(self.visited_urls) < self.max_pages:
-                # Collect batch of URLs at current level
-                batch = []
-                while self.queue and len(batch) < self.max_concurrent:
-                    url, level = self.queue.popleft()
-
-                    # Skip if already visited
-                    if url in self.visited_urls:
-                        continue
-
-                    # Check max depth
-                    if self.max_depth is not None and level > self.max_depth:
-                        continue
-
-                    # Check robots.txt
-                    if not self._can_crawl(url):
-                        logger.warning(f"Skipping {url} (disallowed by robots.txt)")
-                        continue
-
-                    batch.append((url, level))
-
-                if not batch:
-                    continue
-
-                # Update level indicator
-                level = batch[0][1]
-                if level > current_level:
-                    logger.info(f"\n--- Moving to Level {level} ---\n")
-                    current_level = level
-
-                # Crawl batch concurrently
-                tasks = [
-                    self._crawl_page(url, level, base_domain)
-                    for url, level in batch
-                ]
-
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-                # Check for WAF blocking after first page - abort immediately
-                if self._waf_blocked:
-                    logger.error(f"\n{'=' * 60}")
-                    logger.error(f"🛑 CRAWL ABORTED: Blocked by {self._waf_provider}")
-                    logger.error(f"   Status code: {self._waf_status_code}")
-                    logger.error(f"   This site is protected by WAF/CDN that blocks crawlers.")
-                    logger.error(f"{'=' * 60}\n")
-                    # Cleanup browser
-                    await self._drain_page_pool()
-                    await self._context.close()
-                    await self._browser.close()
-                    raise WAFBlockedException(
-                        f"Blocked by {self._waf_provider}",
-                        status_code=self._waf_status_code,
-                        waf_provider=self._waf_provider,
-                    )
-
-                # Save checkpoint every 10 pages
-                if len(self.visited_urls) % 10 == 0:
-                    self._save_checkpoint("running")
-
-            # Cleanup - close all pooled pages first
-            await self._drain_page_pool()
-            await self._context.close()
-            await self._browser.close()
+        # Epic 9: Use BrowserPool when available
+        if self._using_pool and self._browser_pool:
+            logger.info(f"Using BrowserPool (Epic 9 infrastructure)\n")
+            await self._crawl_with_pool(start_url, base_domain)
+        else:
+            logger.info(f"Using rebrowser-playwright (undetected chromium)\n")
+            await self._crawl_with_internal_pool(start_url, base_domain)
 
         # Run PageSpeed Insights analysis on sampled pages
         if self.enable_psi and self._psi_api:
@@ -589,6 +528,114 @@ class AsyncSiteCrawler:
         logger.info(f"{'=' * 60}\n")
 
         return self.site_data
+
+    async def _crawl_with_pool(self, start_url: str, base_domain: str) -> None:
+        """Execute crawl using BrowserPool (Epic 9).
+
+        Args:
+            start_url: Starting URL for the crawl
+            base_domain: Base domain for internal link detection
+        """
+        try:
+            # Start the browser pool
+            await self._browser_pool.start()
+            logger.info(f"BrowserPool started with {self._browser_pool.max_size} contexts")
+
+            await self._execute_crawl_loop(base_domain)
+
+        except WAFBlockedException:
+            raise  # Re-raise WAF exceptions
+        finally:
+            # Cleanup pool
+            if self._browser_pool:
+                await self._browser_pool.stop()
+
+    async def _crawl_with_internal_pool(self, start_url: str, base_domain: str) -> None:
+        """Execute crawl using internal page pool (legacy mode).
+
+        Args:
+            start_url: Starting URL for the crawl
+            base_domain: Base domain for internal link detection
+        """
+        # Launch Playwright browser
+        async with async_playwright() as p:
+            # Store playwright instance for recovery
+            self._playwright = p
+
+            # Minimal launch args - avoid anything that looks like automation
+            self._launch_args = [
+                "--disable-blink-features=AutomationControlled",
+            ]
+
+            # Launch browser and create context
+            await self._launch_browser()
+
+            try:
+                await self._execute_crawl_loop(base_domain)
+            except WAFBlockedException:
+                raise  # Re-raise WAF exceptions
+            finally:
+                # Cleanup - close all pooled pages first
+                await self._drain_page_pool()
+                if self._context:
+                    await self._context.close()
+                if self._browser:
+                    await self._browser.close()
+
+    async def _execute_crawl_loop(self, base_domain: str) -> None:
+        """Execute the main crawl loop (shared by pool and internal pool modes).
+
+        Args:
+            base_domain: Base domain for internal link detection
+        """
+        current_level = 1
+
+        while self.queue and len(self.visited_urls) < self.max_pages:
+            # Collect batch of URLs at current level
+            batch = []
+            while self.queue and len(batch) < self.max_concurrent:
+                url, level = self.queue.popleft()
+
+                if url in self.visited_urls:
+                    continue
+                if self.max_depth is not None and level > self.max_depth:
+                    continue
+                if not self._can_crawl(url):
+                    logger.warning(f"Skipping {url} (disallowed by robots.txt)")
+                    continue
+
+                batch.append((url, level))
+
+            if not batch:
+                continue
+
+            level = batch[0][1]
+            if level > current_level:
+                logger.info(f"\n--- Moving to Level {level} ---\n")
+                current_level = level
+
+            tasks = [
+                self._crawl_page(url, level, base_domain)
+                for url, level in batch
+            ]
+
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Check for WAF blocking
+            if self._waf_blocked:
+                logger.error(f"\n{'=' * 60}")
+                logger.error(f"🛑 CRAWL ABORTED: Blocked by {self._waf_provider}")
+                logger.error(f"   Status code: {self._waf_status_code}")
+                logger.error(f"   This site is protected by WAF/CDN that blocks crawlers.")
+                logger.error(f"{'=' * 60}\n")
+                raise WAFBlockedException(
+                    f"Blocked by {self._waf_provider}",
+                    status_code=self._waf_status_code,
+                    waf_provider=self._waf_provider,
+                )
+
+            if len(self.visited_urls) % 10 == 0:
+                self._save_checkpoint("running")
 
     async def _run_psi_analysis(self) -> None:
         """Run PageSpeed Insights analysis on a sample of crawled pages."""
@@ -757,6 +804,29 @@ class AsyncSiteCrawler:
         """)
 
         logger.info("Browser launched successfully")
+
+    @asynccontextmanager
+    async def _acquire_page(self):
+        """Acquire a page for crawling using BrowserPool or internal pool (Epic 9).
+
+        This context manager provides a unified interface for page acquisition.
+        When BrowserPool is available, uses pool.acquire() for managed contexts.
+        Otherwise, falls back to the internal page pool.
+
+        Yields:
+            Tuple of (page, from_pool) where from_pool indicates cleanup method
+        """
+        if self._using_pool and self._browser_pool:
+            # Epic 9: Use BrowserPool for managed contexts
+            async with self._browser_pool.acquire() as (context, page):
+                yield page, False  # Pool handles cleanup
+        else:
+            # Fallback: Use internal page pool
+            page = await self._get_page_from_pool()
+            try:
+                yield page, True  # We handle cleanup
+            finally:
+                await self._return_page_to_pool(page)
 
     async def _get_page_from_pool(self, max_retries: int = MAX_PAGE_POOL_RETRIES) -> Page:
         """Get a page from the pool, creating one if needed.
@@ -1004,6 +1074,232 @@ class AsyncSiteCrawler:
             # Record permanent failure
             self._record_failure(url, error, level)
 
+    async def _execute_crawl(
+        self,
+        page: Page,
+        url: str,
+        level: int,
+        base_domain: str,
+        resources: ResourceMetrics,
+        original_url: str,
+    ) -> None:
+        """Execute the crawl logic on an acquired page (Epic 9 helper).
+
+        This method contains the core crawl logic extracted to support both
+        BrowserPool and internal page pool modes.
+
+        Args:
+            page: Playwright page instance
+            url: URL to crawl
+            level: Current level in BFS
+            base_domain: Base domain for internal link detection
+            resources: ResourceMetrics instance to populate
+            original_url: Original URL before any redirects
+        """
+        console_handler = None
+        response_handler = None
+
+        try:
+            # Set up console listener for errors/warnings
+            def console_handler(msg):
+                if msg.type == "error":
+                    resources.console_errors.append(msg.text[:500])
+                elif msg.type == "warning":
+                    resources.console_warnings.append(msg.text[:500])
+
+            page.on("console", console_handler)
+
+            # Set up request listener for resource tracking
+            def response_handler(response):
+                try:
+                    resp_url = response.url
+                    resp_domain = urlparse(resp_url).netloc
+                    resource_type = response.request.resource_type
+
+                    headers = response.headers
+                    size = int(headers.get("content-length", 0))
+
+                    resource_info = {
+                        "url": resp_url[:200],
+                        "size": size,
+                        "status": response.status,
+                    }
+
+                    if resource_type == "stylesheet":
+                        resources.css_files.append(resource_info)
+                    elif resource_type == "script":
+                        resources.js_files.append(resource_info)
+                    elif resource_type in ("image", "img"):
+                        resources.images.append(resource_info)
+                    elif resource_type == "font":
+                        resources.fonts.append(resource_info)
+
+                    if resp_domain and resp_domain != base_domain:
+                        resource_info["domain"] = resp_domain
+                        resources.third_party.append(resource_info)
+                except Exception:
+                    pass
+
+            page.on("response", response_handler)
+
+            total_start = time.time()
+            timing = TimingMetrics(url=url)
+
+            # Navigate to the page
+            nav_start = time.time()
+            response = await page.goto(
+                url,
+                wait_until="load",
+                timeout=self.timeout
+            )
+            timing.navigation_time = time.time() - nav_start
+            load_time = timing.navigation_time
+
+            # Record metrics for rate limiter (Epic 10)
+            if response:
+                self._record_request_metrics(load_time, True, response.status)
+
+            # Human-like behavior after page loads
+            delay_start = time.time()
+            await asyncio.sleep(random.uniform(2.0, 3.5))
+            timing.human_delay_time = time.time() - delay_start
+
+            mouse_start = time.time()
+            await self._human_mouse_movement(page)
+            timing.mouse_movement_time = time.time() - mouse_start
+
+            scroll_start = time.time()
+            await page.evaluate("window.scrollTo(0, 300)")
+            await asyncio.sleep(random.uniform(0.5, 1.0))
+            await page.evaluate("window.scrollTo(0, 0)")
+            await asyncio.sleep(random.uniform(0.3, 0.6))
+            timing.scroll_time = time.time() - scroll_start
+
+            await self._handle_popups(page)
+
+            form_start = time.time()
+            await self._try_fill_address(page)
+            timing.form_fill_time = time.time() - form_start
+
+            if response is None:
+                logger.warning(f"  ⚠️  No response received")
+                return
+
+            final_url = page.url
+            was_redirected = final_url != original_url
+            if was_redirected:
+                resources.redirects = [original_url, final_url]
+                if self._should_skip_url("", final_url):
+                    logger.info(f"  → Skipping payment/external redirect: {final_url}")
+                    return
+
+            # Check for WAF/CDN blocking
+            try:
+                page_html = await page.content()
+                resp_headers = await response.all_headers()
+                waf_provider = self._detect_waf_block(response.status, page_html, resp_headers)
+
+                if waf_provider:
+                    logger.info(f"  ⏳ Potential WAF challenge detected, waiting for resolution...")
+                    await asyncio.sleep(3.0)
+                    await self._human_mouse_movement(page)
+                    await asyncio.sleep(1.0)
+
+                    page_html = await page.content()
+                    waf_provider = self._detect_waf_block(response.status, page_html, resp_headers)
+
+                    if waf_provider:
+                        self._waf_blocked = True
+                        self._waf_provider = waf_provider
+                        self._waf_status_code = response.status
+                        logger.error(f"  🛑 WAF/CDN BLOCKED by {waf_provider} (status: {response.status})")
+                        return
+                    else:
+                        logger.info(f"  ✓ WAF challenge passed!")
+            except Exception as e:
+                logger.debug(f"WAF detection check failed: {e}")
+
+            if response.status != 200:
+                logger.warning(f"  ⚠️  Non-200 status: {response.status}")
+                return
+
+            response_headers = await response.all_headers()
+
+            content_start = time.time()
+            html = await page.content()
+            above_fold_data = await self._get_above_fold_metrics(page)
+
+            metadata = self._extract_metadata(
+                url, html, response.status, load_time, response_headers,
+                resources, was_redirected, final_url, above_fold_data
+            )
+            timing.content_extract_time = time.time() - content_start
+
+            self.site_data[url] = metadata
+            self._save_page_to_disk(url, metadata)
+
+            total_kb = metadata.total_page_weight_bytes / 1024
+            logger.info(
+                f"  ✓ Success - {metadata.word_count} words, "
+                f"{metadata.internal_links} links, "
+                f"{total_kb:.0f}KB, {load_time:.2f}s"
+            )
+
+            link_start = time.time()
+            if len(self.visited_urls) < self.max_pages:
+                new_links = self._extract_internal_links(
+                    url, metadata.links, base_domain
+                )
+                for link in new_links:
+                    if link not in self.visited_urls:
+                        self.queue.append((link, level + 1))
+                if new_links:
+                    logger.info(f"  → Queued {len(new_links)} new links for L{level + 1}")
+
+            timing.link_extract_time = time.time() - link_start
+            timing.total_time = time.time() - total_start
+
+            self.timing_data.append(timing)
+            timing.log_summary()
+
+        except asyncio.TimeoutError as e:
+            logger.error(f"  ⚠️  Timeout crawling {url}")
+            # M1.3: Timeouts indicate network congestion, trigger moderate backoff
+            self._record_request_metrics(30.0, False, 0, error_type="timeout")
+            await self._handle_crawl_error(url, e, level)
+        except Exception as e:
+            error_str = str(e).lower()
+            if "target" in error_str and "closed" in error_str:
+                # M1.3: Browser crashes are infrastructure issues, no rate impact
+                self._record_request_metrics(0.0, False, 0, error_type="browser_crash")
+                self._session_errors += 3
+                logger.warning(f"  ⚠️  Session crashed: {url}")
+                await self._handle_crawl_error(url, e, level)
+            elif "name resolution" in error_str or "dns" in error_str:
+                # M1.3: DNS failures may indicate network issues
+                self._record_request_metrics(0.0, False, 0, error_type="dns")
+                logger.error(f"  ⚠️  DNS resolution failed for {url}: {e}")
+                await self._handle_crawl_error(url, e, level)
+            elif "connection" in error_str or "reset" in error_str:
+                # M1.3: Connection errors trigger light backoff
+                self._record_request_metrics(0.0, False, 0, error_type="network")
+                logger.error(f"  ⚠️  Network error crawling {url}: {e}")
+                await self._handle_crawl_error(url, e, level)
+            else:
+                # M1.3: Unknown errors don't trigger rate limiting backoff
+                self._record_request_metrics(0.0, False, 0, error_type="unknown")
+                logger.error(f"  ⚠️  Unexpected error crawling {url}: {e}")
+                await self._handle_crawl_error(url, e, level)
+        finally:
+            if page:
+                try:
+                    if console_handler:
+                        page.remove_listener("console", console_handler)
+                    if response_handler:
+                        page.remove_listener("response", response_handler)
+                except Exception:
+                    pass
+
     async def _crawl_page(
         self,
         url: str,
@@ -1026,235 +1322,28 @@ class AsyncSiteCrawler:
 
             logger.info(f"[L{level}] Crawling ({len(self.visited_urls)}/{self.max_pages}): {url}")
 
-            page: Optional[Page] = None
             resources = ResourceMetrics()
             original_url = url
-            page_from_pool = False
 
-            # Handlers need to be defined outside try block for removal
-            console_handler = None
-            response_handler = None
+            # Epic 9: Use BrowserPool when available
+            if self._using_pool and self._browser_pool:
+                async with self._browser_pool.acquire() as (context, page):
+                    await self._execute_crawl(
+                        page, url, level, base_domain, resources, original_url
+                    )
+                return
+
+            # Fallback: Use internal page pool
+            page: Optional[Page] = None
 
             try:
-                # Get page from pool (reuses existing tabs)
                 page = await self._get_page_from_pool()
-                page_from_pool = True
-
-                # Set up console listener for errors/warnings
-                def console_handler(msg):
-                    if msg.type == "error":
-                        resources.console_errors.append(msg.text[:500])
-                    elif msg.type == "warning":
-                        resources.console_warnings.append(msg.text[:500])
-
-                page.on("console", console_handler)
-
-                # Set up request listener for resource tracking
-                def response_handler(response):
-                    try:
-                        resp_url = response.url
-                        resp_domain = urlparse(resp_url).netloc
-                        resource_type = response.request.resource_type
-
-                        # Try to get content length
-                        headers = response.headers
-                        size = int(headers.get("content-length", 0))
-
-                        resource_info = {
-                            "url": resp_url[:200],
-                            "size": size,
-                            "status": response.status,
-                        }
-
-                        # Track by resource type
-                        if resource_type == "stylesheet":
-                            resources.css_files.append(resource_info)
-                        elif resource_type == "script":
-                            resources.js_files.append(resource_info)
-                        elif resource_type in ("image", "img"):
-                            resources.images.append(resource_info)
-                        elif resource_type == "font":
-                            resources.fonts.append(resource_info)
-
-                        # Track third-party resources
-                        if resp_domain and resp_domain != base_domain:
-                            resource_info["domain"] = resp_domain
-                            resources.third_party.append(resource_info)
-
-                    except Exception:
-                        pass
-
-                page.on("response", response_handler)
-
-                total_start = time.time()
-                timing = TimingMetrics(url=url)
-
-                # Navigate to the page - use load, then wait for JS to settle
-                nav_start = time.time()
-                response = await page.goto(
-                    url,
-                    wait_until="load",
-                    timeout=self.timeout
+                await self._execute_crawl(
+                    page, url, level, base_domain, resources, original_url
                 )
-                timing.navigation_time = time.time() - nav_start
-                load_time = timing.navigation_time
-
-                # Human-like behavior after page loads
-                # Wait longer initially to let bot detection JS run and (hopefully) pass us
-                delay_start = time.time()
-                await asyncio.sleep(random.uniform(2.0, 3.5))
-                timing.human_delay_time = time.time() - delay_start
-
-                mouse_start = time.time()
-                await self._human_mouse_movement(page)
-                timing.mouse_movement_time = time.time() - mouse_start
-
-                scroll_start = time.time()
-                await page.evaluate("window.scrollTo(0, 300)")
-                await asyncio.sleep(random.uniform(0.5, 1.0))
-                await page.evaluate("window.scrollTo(0, 0)")  # Scroll back up
-                await asyncio.sleep(random.uniform(0.3, 0.6))
-                timing.scroll_time = time.time() - scroll_start
-
-                # Handle any popups (newsletter signups, cookie banners, etc.)
-                await self._handle_popups(page)
-
-                # Try to fill address if prompted
-                form_start = time.time()
-                await self._try_fill_address(page)
-                timing.form_fill_time = time.time() - form_start
-
-                if response is None:
-                    logger.warning(f"  ⚠️  No response received")
-                    return
-
-                # Track redirects
-                final_url = page.url
-                was_redirected = final_url != original_url
-                if was_redirected:
-                    resources.redirects = [original_url, final_url]
-                    # Skip if redirected to payment/third-party domain
-                    if self._should_skip_url("", final_url):
-                        logger.info(f"  → Skipping payment/external redirect: {final_url}")
-                        return
-
-                # Check for WAF/CDN blocking
-                # Get fresh content - page may have updated after bot detection passed
-                try:
-                    page_html = await page.content()
-                    resp_headers = await response.all_headers()
-                    waf_provider = self._detect_waf_block(response.status, page_html, resp_headers)
-
-                    # If we detect a potential block, wait a bit more and recheck
-                    # Some WAFs take time to "pass" you through
-                    if waf_provider:
-                        logger.info(f"  ⏳ Potential WAF challenge detected, waiting for resolution...")
-                        await asyncio.sleep(3.0)
-                        await self._human_mouse_movement(page)
-                        await asyncio.sleep(1.0)
-
-                        # Recheck - page content may have changed
-                        page_html = await page.content()
-                        waf_provider = self._detect_waf_block(response.status, page_html, resp_headers)
-
-                        if waf_provider:
-                            self._waf_blocked = True
-                            self._waf_provider = waf_provider
-                            self._waf_status_code = response.status
-                            logger.error(f"  🛑 WAF/CDN BLOCKED by {waf_provider} (status: {response.status})")
-                            return
-                        else:
-                            logger.info(f"  ✓ WAF challenge passed!")
-
-                except Exception as e:
-                    logger.debug(f"WAF detection check failed: {e}")
-
-                if response.status != 200:
-                    logger.warning(f"  ⚠️  Non-200 status: {response.status}")
-                    return
-
-                # Capture response headers
-                response_headers = await response.all_headers()
-
-                # Get rendered HTML content and extract metadata
-                content_start = time.time()
-                html = await page.content()
-
-                # Get above-the-fold metrics
-                above_fold_data = await self._get_above_fold_metrics(page)
-
-                # Extract metadata with resource info
-                metadata = self._extract_metadata(
-                    url, html, response.status, load_time, response_headers,
-                    resources, was_redirected, final_url, above_fold_data
-                )
-                timing.content_extract_time = time.time() - content_start
-
-                # Store the page data
-                self.site_data[url] = metadata
-
-                # Save to disk immediately for resume capability
-                self._save_page_to_disk(url, metadata)
-
-                # Log with resource info
-                total_kb = metadata.total_page_weight_bytes / 1024
-                logger.info(
-                    f"  ✓ Success - {metadata.word_count} words, "
-                    f"{metadata.internal_links} links, "
-                    f"{total_kb:.0f}KB, {load_time:.2f}s"
-                )
-
-                # Extract and queue internal links
-                link_start = time.time()
-                if len(self.visited_urls) < self.max_pages:
-                    new_links = self._extract_internal_links(
-                        url, metadata.links, base_domain
-                    )
-
-                    # Add new links to queue at next level
-                    for link in new_links:
-                        if link not in self.visited_urls:
-                            self.queue.append((link, level + 1))
-
-                    if new_links:
-                        logger.info(f"  → Queued {len(new_links)} new links for L{level + 1}")
-
-                timing.link_extract_time = time.time() - link_start
-                timing.total_time = time.time() - total_start
-
-                # Store and log timing
-                self.timing_data.append(timing)
-                timing.log_summary()
-
-            except asyncio.TimeoutError as e:
-                logger.error(f"  ⚠️  Timeout crawling {url}")
-                await self._handle_crawl_error(url, e, level)
-            except Exception as e:
-                error_str = str(e).lower()
-                # Detect browser/session crashes
-                if "target" in error_str and "closed" in error_str:
-                    self._session_errors += 3  # Fast-track recovery
-                    logger.warning(f"  ⚠️  Session crashed: {url}")
-                    await self._handle_crawl_error(url, e, level)
-                else:
-                    logger.error(f"  ⚠️  Unexpected error crawling {url}: {e}")
-                    await self._handle_crawl_error(url, e, level)
             finally:
-                # Remove event handlers to prevent memory leaks
                 if page:
-                    try:
-                        if console_handler:
-                            page.remove_listener("console", console_handler)
-                        if response_handler:
-                            page.remove_listener("response", response_handler)
-                    except Exception:
-                        pass
-
-                page_return_start = time.time()
-                if page and page_from_pool:
-                    # Return page to pool for reuse instead of closing
                     await self._return_page_to_pool(page)
-                # Note: page_return_time not captured in timing since it's in finally
 
     async def _get_above_fold_metrics(self, page: Page) -> dict:
         """Get metrics for above-the-fold content.
@@ -1388,20 +1477,87 @@ class AsyncSiteCrawler:
 
         return handled
 
-    async def _respect_rate_limit(self, domain: str) -> None:
+    async def _respect_rate_limit(self, domain: str) -> float:
         """Ensure minimum delay between requests to same domain.
 
         Args:
             domain: Domain to rate limit
+
+        Returns:
+            Time waited in seconds
         """
+        # Use AdaptiveRateLimiter when available (Epic 10)
+        if self._rate_limiter:
+            wait_time = await self._rate_limiter.wait()
+            return wait_time
+
+        # Fallback to simple rate limiting
+        wait_time = 0.0
         if domain in self.last_request_time:
             elapsed = time.time() - self.last_request_time[domain]
             if elapsed < self.rate_limit:
                 # Add random jitter to rate limit
                 jitter = random.uniform(0, 0.5)
-                await asyncio.sleep(self.rate_limit - elapsed + jitter)
+                wait_time = self.rate_limit - elapsed + jitter
+                await asyncio.sleep(wait_time)
 
         self.last_request_time[domain] = time.time()
+        return wait_time
+
+    def _record_request_metrics(
+        self,
+        response_time: float,
+        success: bool,
+        status_code: int = 200,
+        error_type: str | None = None,
+    ) -> None:
+        """Record request metrics in rate limiter when available (Epic 10).
+
+        Provides comprehensive error feedback to the rate limiter for intelligent
+        backoff decisions per M1.3 recommendations.
+
+        Args:
+            response_time: Time taken for the request
+            success: Whether the request succeeded
+            status_code: HTTP status code
+            error_type: Classification of error (network, timeout, browser, etc.)
+
+        Error classification and rate limiter impact:
+        - HTTP 429/503: Rate limiting errors, trigger full backoff
+        - HTTP 500-599: Server errors, trigger moderate backoff
+        - HTTP 400-499 (except 429): Client errors, no rate impact
+        - timeout: Network congestion, trigger moderate backoff
+        - network: Connection issues, trigger light backoff
+        - browser_crash: Infrastructure error, no rate impact
+        """
+        if not self._rate_limiter:
+            return
+
+        # Determine if this error should affect rate limiting
+        # Per M1.3: Error types have different weights for rate limiting
+        should_trigger_backoff = False
+
+        if not success:
+            # HTTP 429 and 503 are explicit rate limiting signals
+            if status_code in (429, 503):
+                should_trigger_backoff = True
+            # Other 5xx errors indicate server issues
+            elif 500 <= status_code < 600:
+                should_trigger_backoff = True
+            # Timeouts and network errors suggest congestion
+            elif error_type in ("timeout", "network", "dns"):
+                should_trigger_backoff = True
+            # Browser crashes are infrastructure issues, not server issues
+            elif error_type == "browser_crash":
+                should_trigger_backoff = False
+            # Client errors (4xx except 429) don't affect rate limiting
+            elif 400 <= status_code < 500:
+                should_trigger_backoff = False
+
+        self._rate_limiter.record_request(
+            response_time=response_time,
+            success=success and not should_trigger_backoff,
+        )
 
     async def _human_mouse_movement(self, page: Page) -> None:
         """Simulate human-like mouse movements on the page.

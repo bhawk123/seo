@@ -299,6 +299,38 @@ class BrowserPool:
         self._started = False
         logger.info("Browser pool stopped")
 
+    async def __aenter__(self) -> "BrowserPool":
+        """
+        Async context manager entry - starts the pool.
+
+        M1.1: Provides deterministic lifecycle management for BrowserPool.
+        Ensures proper cleanup even if exceptions occur.
+
+        Usage:
+            async with BrowserPool(max_size=4) as pool:
+                async with pool.acquire() as (context, page):
+                    await page.goto(url)
+        """
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """
+        Async context manager exit - stops the pool.
+
+        Ensures cleanup occurs even if an exception was raised.
+
+        Args:
+            exc_type: Exception type if raised
+            exc_val: Exception value if raised
+            exc_tb: Exception traceback if raised
+
+        Returns:
+            False to propagate any exceptions
+        """
+        await self.stop()
+        return False  # Don't suppress exceptions
+
     async def _create_context(self) -> int:
         """
         Create a new browser context.

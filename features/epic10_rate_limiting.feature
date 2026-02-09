@@ -248,3 +248,99 @@ Feature: Adaptive Rate Limiting
     Given requests to domain-a.com and domain-b.com
     When get_metrics(domain="domain-a.com") is called
     Then only domain-a.com metrics should be returned
+
+  # ===========================================================================
+  # Feature 10.3: Rate Limiter Edge Cases & Error Integration
+  # Story 10.3.1: Edge Case Handling
+  # ===========================================================================
+
+  @story-10.3.1 @edge-cases
+  Scenario: Successful requests followed by hard rate limits
+    Given 10 successful requests at normal speed
+    When the server returns 3 consecutive HTTP 429 responses
+    Then current_delay should increase exponentially
+    And the rate limiter should enter backoff mode
+    And subsequent requests should wait longer between attempts
+
+  @story-10.3.1 @edge-cases
+  Scenario: Recovery from prolonged backoff
+    Given the rate limiter is in maximum backoff (10s delay)
+    And the server starts returning successful responses
+    When 20 successful requests are recorded
+    Then current_delay should gradually decrease
+    And should approach base_delay (1.0s)
+    And recovery should follow the success_recovery_multiplier
+
+  @story-10.3.1 @edge-cases
+  Scenario: Non-rate-limit errors do not trigger backoff
+    Given the server returns HTTP 404 for 5 requests
+    When the error rate is calculated
+    Then HTTP 404 should NOT be counted as rate-limiting errors
+    And current_delay should remain at base_delay
+    And the requests should be marked as client errors
+
+  @story-10.3.1 @edge-cases
+  Scenario: HTTP 500 errors trigger server-side backoff
+    Given the server returns HTTP 500 for 3 requests
+    When the error rate is calculated
+    Then HTTP 500 SHOULD be counted as server errors
+    And current_delay should increase
+    And the rate limiter should back off to reduce server load
+
+  @story-10.3.1 @edge-cases
+  Scenario: Connection timeouts trigger backoff
+    Given 3 requests timeout without response
+    When timeout errors are recorded
+    Then they should be treated as server-side issues
+    And current_delay should increase
+    And the rate limiter should reduce request frequency
+
+  @story-10.3.1 @edge-cases
+  Scenario: Mixed success and failure patterns
+    Given a pattern of: success, success, 429, success, 429, 429
+    When the sliding window is evaluated
+    Then error_rate should be 0.5 (3/6)
+    And current_delay should reflect the mixed pattern
+    And should not over-react to isolated failures
+
+  # ===========================================================================
+  # Feature 10.3: Rate Limiter Edge Cases & Error Integration
+  # Story 10.3.2: Comprehensive Error Feedback
+  # ===========================================================================
+
+  @story-10.3.2 @error-feedback @integration
+  Scenario: Browser crashes reported to rate limiter
+    Given a page request causes a browser crash
+    When the error is caught by AsyncSiteCrawler
+    Then the error should be reported to the rate limiter
+    And it should be classified as infrastructure error
+    And should not trigger rate-based backoff
+
+  @story-10.3.2 @error-feedback @integration
+  Scenario: Network errors reported to rate limiter
+    Given a request fails with "Connection reset by peer"
+    When the error is caught by AsyncSiteCrawler
+    Then the error should be reported to the rate limiter
+    And it should be classified as network error
+    And should trigger moderate backoff
+
+  @story-10.3.2 @error-feedback @integration
+  Scenario: DNS resolution failures reported
+    Given a request fails with "Name resolution failed"
+    When the error is caught by AsyncSiteCrawler
+    Then the error should be reported as DNS failure
+    And subsequent requests to same domain should wait
+    And the domain should be flagged for potential issues
+
+  @story-10.3.2 @error-feedback @integration
+  Scenario: Error types have configurable weights
+    Given error_weights configuration:
+      | error_type    | weight |
+      | http_429      | 2.0    |
+      | http_503      | 1.5    |
+      | timeout       | 1.0    |
+      | connection    | 0.8    |
+      | browser_crash | 0.0    |
+    When errors of each type are recorded
+    Then backoff should be weighted accordingly
+    And browser crashes should not affect rate limiting

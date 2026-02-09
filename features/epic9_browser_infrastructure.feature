@@ -323,3 +323,83 @@ Feature: Browser Pool Management
     Then the mouse should move to the element first
     And the movement should have slight random offset
     And a small delay should occur before click
+
+  # ===========================================================================
+  # Feature 9.3: Browser Pool Fault Tolerance & Recovery
+  # Story 9.3.1: Handle Browser Crashes
+  # ===========================================================================
+
+  @story-9.3.1 @fault-tolerance @recovery
+  Scenario: AsyncSiteCrawler gracefully handles and recovers from browser crashes
+    Given a "BrowserPool" configured with a maximum of 3 browser instances
+    And the "AsyncSiteCrawler" is initialized with this BrowserPool
+    And a crawl target "https://flaky-site.com" where one browser instance is designed to crash after 5 requests
+    When the "AsyncSiteCrawler" attempts to crawl 10 pages on "https://flaky-site.com"
+    Then the crawler should detect the browser crash
+    And the "BrowserPool" should replace the crashed browser instance with a new, healthy one
+    And the "AsyncSiteCrawler" should successfully complete the crawl of all 10 pages
+    And the final crawl report should indicate no unhandled browser-related errors
+
+  @story-9.3.1 @fault-tolerance @recovery
+  Scenario: Browser context crash triggers automatic replacement
+    Given a context has been acquired from the pool
+    When the context throws "Target closed" error
+    Then the context should be marked as UNHEALTHY
+    And a new context should be created to replace it
+    And the failed request should be retried on the new context
+    And the original request should eventually succeed
+
+  @story-9.3.1 @fault-tolerance @recovery
+  Scenario: Pool continues operating during context replacement
+    Given 3 contexts are active and healthy
+    When context 2 crashes unexpectedly
+    Then contexts 1 and 3 should continue processing requests
+    And a new context 4 should be created
+    And pool availability should not drop to zero
+
+  @story-9.3.1 @fault-tolerance @recovery
+  Scenario: Multiple simultaneous context failures handled
+    Given 4 contexts are active
+    When 2 contexts crash simultaneously
+    Then both should be detected and marked UNHEALTHY
+    And 2 new contexts should be created
+    And pending requests should be redistributed
+    And no requests should be permanently lost
+
+  @story-9.3.1 @fault-tolerance @recovery
+  Scenario: Browser instance failure triggers full restart
+    Given a browser instance is managing 2 contexts
+    When the browser process terminates unexpectedly
+    Then both contexts should be marked UNHEALTHY
+    And a new browser instance should be launched
+    And new contexts should be created
+    And the pool should recover to full capacity
+
+  # ===========================================================================
+  # Feature 9.3: Browser Pool Fault Tolerance & Recovery
+  # Story 9.3.2: Resource Lifecycle Management
+  # ===========================================================================
+
+  @story-9.3.2 @lifecycle @context-manager
+  Scenario: BrowserPool supports async context manager
+    When using BrowserPool as an async context manager
+    Then start() should be called on entry
+    And stop() should be called on exit
+    And cleanup should occur even if exceptions are raised
+
+  @story-9.3.2 @lifecycle @context-manager
+  Scenario: AsyncSiteCrawler cleanup on exception
+    Given the crawler is using a BrowserPool
+    When an unhandled exception occurs during crawl
+    Then the BrowserPool should be properly stopped
+    And all browser contexts should be closed
+    And no orphaned browser processes should remain
+
+  @story-9.3.2 @lifecycle @context-manager
+  Scenario: Graceful degradation when pool exhausted
+    Given a pool with max_size 2
+    And both contexts are stuck on slow pages
+    When a third request arrives
+    Then it should wait up to the configured timeout
+    And if timeout exceeded, should raise descriptive error
+    And the stuck contexts should be monitored for health

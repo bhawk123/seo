@@ -172,3 +172,82 @@ Feature: Selector Library
     When FormHandler processes this form
     Then it should still be able to use the hardcoded selector
     And SelectorLibrary integration should be optional/configurable.
+
+  # ===========================================================================
+  # Feature 11.3: Selector Ambiguity & Evolution
+  # Story 11.3.1: Handle Evolving Website Structures
+  # ===========================================================================
+
+  @story-11.3.1 @evolution @ambiguity
+  Scenario: Previously valid selector becomes ambiguous
+    Given selector "#submit" was stored with confidence 0.9 for "submit_button"
+    And it previously matched exactly 1 element
+    When the selector now matches 3 elements on the page
+    Then the selector should be flagged as "ambiguous"
+    And confidence should decrease significantly (e.g., to 0.4)
+    And alternative selectors should be evaluated
+
+  @story-11.3.1 @evolution @ambiguity
+  Scenario: Previously valid selector becomes invalid
+    Given selector "#old-email-input" was stored for "email_field"
+    When the element no longer exists on the page
+    Then the selector should be marked as "broken"
+    And confidence should drop to minimum (e.g., 0.1)
+    And fallback selectors should be tried automatically
+
+  @story-11.3.1 @evolution @ambiguity
+  Scenario: Stability scores identify reliable selectors over time
+    Given selector "#email" has been used 50 times with 100% success
+    And selector ".form-email" has been used 50 times with 80% success
+    When getting selectors for "email_field"
+    Then "#email" should have higher effective confidence
+    And it should be preferred over ".form-email"
+
+  @story-11.3.1 @evolution @ambiguity
+  Scenario: Alternative selector promoted when primary fails
+    Given primary selector "#submit-v1" has failed 5 consecutive times
+    And alternative selector "[data-action=submit]" succeeds
+    Then "[data-action=submit]" should be promoted to primary
+    And "#submit-v1" should become an alternative
+    And their confidence scores should be swapped
+
+  @story-11.3.1 @evolution @ambiguity
+  Scenario: Selector versioning tracks website changes
+    Given selector "#submit" was stored on 2024-01-01
+    When the page structure changes on 2024-02-01
+    And a new selector ".btn-primary" is discovered
+    Then both selectors should be tracked with timestamps
+    And the newer selector should be preferred for recent pages
+    And historical crawl data should use appropriate selectors
+
+  # ===========================================================================
+  # Feature 11.3: Selector Ambiguity & Evolution
+  # Story 11.3.2: Fallback Priority Verification
+  # ===========================================================================
+
+  @story-11.3.2 @fallback-priority
+  Scenario: Site-specific selectors take priority over global
+    Given site-specific selector "#site-email" for "example.com"
+    And global pattern "input[type=email]"
+    When getting fallbacks for "email_field" on "example.com"
+    Then "#site-email" should appear before "input[type=email]"
+    And site-specific should have higher weight
+
+  @story-11.3.2 @fallback-priority
+  Scenario: High-stability selectors preferred in fallback chain
+    Given fallback candidates:
+      | selector           | stability | confidence |
+      | [data-id=email]    | 0.98      | 0.7        |
+      | #email             | 0.95      | 0.9        |
+      | .email-field       | 0.60      | 0.9        |
+    When constructing fallback chain
+    Then priority should consider both stability and confidence
+    And "[data-id=email]" should be ranked highest due to stability bonus
+
+  @story-11.3.2 @fallback-priority
+  Scenario: Global patterns used only when site-specific exhausted
+    Given 2 site-specific selectors with low confidence (0.3, 0.2)
+    And global pattern with medium confidence (0.5)
+    When all site-specific selectors fail
+    Then global pattern should be tried
+    And if it succeeds, should be recorded for this site
