@@ -300,13 +300,17 @@ IMPORTANT: Do NOT include any closing questions, offers for further assistance, 
 
     try:
         print("Generating LLM recommendations...")
+        site_url = start_url or (list(site_data.keys())[0] if site_data else 'unknown')
         response, evidence = llm.generate_recommendations_with_evidence(
             prompt=prompt,
-            site_url=start_url or list(site_data.keys())[0] if site_data else 'unknown',
+            site_url=site_url,
             crawl_stats=crawl_stats,
         )
+        print(f"LLM evidence records: {len(evidence)}")
         return response, evidence
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return f"Failed to generate LLM recommendations: {e}", []
 
 
@@ -632,8 +636,18 @@ async def main():
         llm_recommendations = "Note: Set LLM_API_KEY in .env to enable AI-powered recommendations."
 
     # Add LLM evidence to advanced_analysis (Epic 1)
+    print(f"DEBUG: llm_evidence = {len(llm_evidence) if llm_evidence else 0} records")
     if llm_evidence:
         advanced_analysis['llm_evidence'] = llm_evidence
+        print(f"DEBUG: Added llm_evidence to advanced_analysis")
+
+    # Get PSI results and create CWV evidence BEFORE saving (Epic 3)
+    psi_results = crawler.get_psi_results()
+    if psi_results:
+        from seo.external.pagespeed_insights import psi_results_to_evidence
+        cwv_evidence = psi_results_to_evidence(psi_results)
+        if cwv_evidence:
+            advanced_analysis['cwv_evidence'] = cwv_evidence
 
     # Save crawl results with advanced_analysis for reports
     output_mgr.save_crawl_results(
@@ -646,17 +660,10 @@ async def main():
         advanced_analysis=advanced_analysis,
     )
 
-    # Save individual Lighthouse reports and coverage stats
-    psi_results = crawler.get_psi_results()
+    # Save individual Lighthouse reports
     if psi_results:
         output_mgr.save_lighthouse_reports(crawl_dir, psi_results)
         print(f"✅ Saved {len(psi_results)} Lighthouse reports to {crawl_dir}/lighthouse/")
-
-        # Create CWV EvidenceRecords (Epic 3)
-        from seo.external.pagespeed_insights import psi_results_to_evidence
-        cwv_evidence = psi_results_to_evidence(psi_results)
-        if cwv_evidence:
-            advanced_analysis['cwv_evidence'] = cwv_evidence
 
     # Save PSI coverage statistics (Epic 3)
     psi_coverage = crawler.get_psi_coverage()

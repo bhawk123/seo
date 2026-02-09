@@ -529,6 +529,14 @@ class OutputManager:
         if 'technology' in advanced_analysis:
             result['technology'] = advanced_analysis['technology']
 
+        # Add LLM evidence (Epic 1)
+        if 'llm_evidence' in advanced_analysis:
+            result['llm_evidence'] = advanced_analysis['llm_evidence']
+
+        # Add CWV evidence (Epic 3)
+        if 'cwv_evidence' in advanced_analysis:
+            result['cwv_evidence'] = advanced_analysis['cwv_evidence']
+
         return result
 
     def _load_json(self, filepath: Path) -> dict:
