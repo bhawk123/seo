@@ -1897,8 +1897,14 @@ class ReportGenerator:
                 'total_pages': total_pages,
                 'challenges_detected': 0,
                 'challenge_rate': 0,
+                'blocking_challenges': 0,
+                'pages_skipped': 0,
+                'challenge_types': {},
+                'pages_with_challenges': [],
+                'skipped_pages': [],
                 'status': 'clear',
                 'summary': 'No CAPTCHA or bot challenges detected during crawl.',
+                'has_issues': False,
             }
 
         # Determine severity
