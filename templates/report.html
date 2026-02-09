@@ -1769,6 +1769,110 @@
                 {% else %}
                 <p style="color: var(--ne-text-secondary);">Crawlability analysis not available for this crawl.</p>
                 {% endif %}
+
+                <!-- Challenge/CAPTCHA Detection Section (STORY-INFRA-006) -->
+                <h2 style="margin-top: 40px;">Bot Challenge Detection</h2>
+                <p class="summary-intro">
+                    Analyze CAPTCHA and bot detection challenges encountered during crawling.
+                    Pages with challenges may block search engine bots and affect indexing.
+                </p>
+
+                {% if challenge_detection and challenge_detection.enabled %}
+                <div class="analysis-grid">
+                    <div class="analysis-card">
+                        <h3>Challenge Status</h3>
+                        <div class="score-display" style="{% if challenge_detection.status == 'clear' %}color: #2f855a;{% elif challenge_detection.status == 'low' %}color: var(--ne-gold);{% elif challenge_detection.status == 'medium' %}color: #ed8936;{% else %}color: #c53030;{% endif %}">
+                            {% if challenge_detection.status == 'clear' %}✓{% else %}{{ challenge_detection.challenges_detected }}{% endif %}
+                        </div>
+                        <div class="score-label">
+                            {% if challenge_detection.status == 'clear' %}No Challenges Detected{% else %}Challenges Found{% endif %}
+                        </div>
+                    </div>
+
+                    <div class="analysis-card">
+                        <h3>Detection Summary</h3>
+                        <div class="metric-row">
+                            <span class="metric-label">Pages Analyzed</span>
+                            <span class="metric-value">{{ challenge_detection.total_pages }}</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Challenges Found</span>
+                            <span class="metric-value" style="{% if challenge_detection.challenges_detected > 0 %}color: #ed8936;{% endif %}">
+                                {{ challenge_detection.challenges_detected }} ({{ challenge_detection.challenge_rate }}%)
+                            </span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Blocking Challenges</span>
+                            <span class="metric-value" style="{% if challenge_detection.blocking_challenges > 0 %}color: #c53030;{% endif %}">
+                                {{ challenge_detection.blocking_challenges|default(0) }}
+                            </span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Pages Skipped</span>
+                            <span class="metric-value" style="{% if challenge_detection.pages_skipped > 0 %}color: #c53030;{% endif %}">
+                                {{ challenge_detection.pages_skipped|default(0) }}
+                            </span>
+                        </div>
+                    </div>
+
+                    {% if challenge_detection.challenge_types %}
+                    <div class="analysis-card">
+                        <h3>Challenge Types</h3>
+                        {% for type, count in challenge_detection.challenge_types.items() %}
+                        <div class="metric-row">
+                            <span class="metric-label">{{ type|replace('_', ' ')|title }}</span>
+                            <span class="metric-value">{{ count }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+
+                {% if challenge_detection.pages_with_challenges and challenge_detection.challenges_detected > 0 %}
+                <h3 style="margin-top: 24px;">Pages with Challenges</h3>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>URL</th>
+                                <th>Challenge Type</th>
+                                <th>Impact</th>
+                                <th>Blocking</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for page in challenge_detection.pages_with_challenges %}
+                            <tr>
+                                <td><a href="{{ page.url }}" target="_blank" style="color: var(--ne-gold);">{{ page.url|truncate(60) }}</a></td>
+                                <td>{{ page.version|replace('_', ' ')|title }}</td>
+                                <td style="{% if page.impact == 'high' %}color: #c53030;{% elif page.impact == 'medium' %}color: #ed8936;{% else %}color: var(--ne-gold);{% endif %}">
+                                    {{ page.impact|title }}
+                                </td>
+                                <td style="{% if page.blocking %}color: #c53030;{% endif %}">
+                                    {% if page.blocking %}Yes{% else %}No{% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+
+                {% if challenge_detection.has_issues %}
+                <div class="remediation" style="margin-top: 24px;">
+                    <div class="remediation-title">🛡️ CHALLENGE DETECTION RECOMMENDATIONS</div>
+                    <ul class="remediation-steps">
+                        <li>Review pages with blocking challenges - they may be inaccessible to search engines</li>
+                        <li>Consider implementing bot-friendly alternatives for critical pages</li>
+                        <li>Use reCAPTCHA v3 instead of v2 where possible for better user and bot experience</li>
+                        <li>Verify Google can still index pages by checking Search Console coverage report</li>
+                        <li>Test pages with Google's Mobile-Friendly Test tool to verify rendering</li>
+                    </ul>
+                </div>
+                {% endif %}
+                {% else %}
+                <p style="color: var(--ne-text-secondary);">Challenge detection data not available. Run a browser-based crawl to detect CAPTCHAs.</p>
+                {% endif %}
             </div>
 
             <!-- Tab 7: Recommendations -->

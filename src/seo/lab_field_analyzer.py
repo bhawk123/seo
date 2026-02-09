@@ -26,7 +26,13 @@ class LabFieldAnalyzer:
 
     # Source labels for evidence provenance
     LAB_SOURCE = "Lighthouse"
+    LAB_SOURCE_FULL = "google_pagespeed_insights"
     FIELD_SOURCE = "CrUX"
+    FIELD_SOURCE_FULL = "chrome_user_experience_report"
+
+    # CrUX data freshness metadata
+    CRUX_COLLECTION_PERIOD = "28-day rolling window"
+    CRUX_DATA_FRESHNESS_NOTE = "Real user data aggregated over last 28 days"
 
     def __init__(self, thresholds: Optional[AnalysisThresholds] = None):
         """Initialize analyzer with configurable thresholds.
@@ -382,8 +388,19 @@ class LabFieldAnalyzer:
             source_type=EvidenceSourceType.MEASUREMENT,
             source_location=url,
             measured_value={
-                'lab': {'value': lab_value, 'status': lab_status, 'source': self.LAB_SOURCE},
-                'field': {'value': field_value, 'status': field_status, 'source': self.FIELD_SOURCE},
+                'lab': {
+                    'value': lab_value,
+                    'status': lab_status,
+                    'source': self.LAB_SOURCE,
+                    'source_api': self.LAB_SOURCE_FULL,
+                },
+                'field': {
+                    'value': field_value,
+                    'status': field_status,
+                    'source': self.FIELD_SOURCE,
+                    'source_api': self.FIELD_SOURCE_FULL,
+                    'collection_period': self.CRUX_COLLECTION_PERIOD,
+                },
             },
             ai_generated=False,
             reasoning=f'Lab ({self.LAB_SOURCE}) and field ({self.FIELD_SOURCE}) data show different status for {metric}',
@@ -418,8 +435,18 @@ class LabFieldAnalyzer:
             source_type=EvidenceSourceType.CALCULATION,
             source_location=url,
             measured_value={
-                'lab': {'value': lab_value, 'source': self.LAB_SOURCE},
-                'field': {'value': field_value, 'source': self.FIELD_SOURCE},
+                'lab': {
+                    'value': lab_value,
+                    'source': self.LAB_SOURCE,
+                    'source_api': self.LAB_SOURCE_FULL,
+                },
+                'field': {
+                    'value': field_value,
+                    'source': self.FIELD_SOURCE,
+                    'source_api': self.FIELD_SOURCE_FULL,
+                    'collection_period': self.CRUX_COLLECTION_PERIOD,
+                    'data_freshness': self.CRUX_DATA_FRESHNESS_NOTE,
+                },
                 'gap_percentage': gap_percentage,
                 'threshold': self.significant_gap,
             },
@@ -428,7 +455,9 @@ class LabFieldAnalyzer:
             input_summary={
                 'formula': '((lab_value - field_value) / field_value) * 100',
                 'lab_source': self.LAB_SOURCE,
+                'lab_api': self.LAB_SOURCE_FULL,
                 'field_source': self.FIELD_SOURCE,
+                'field_api': self.FIELD_SOURCE_FULL,
             },
         )
         self._evidence_collection.add_record(record)
@@ -462,7 +491,11 @@ class LabFieldAnalyzer:
             reasoning='Aggregate comparison of lab (Lighthouse) vs field (CrUX) performance data',
             input_summary={
                 'lab_source': self.LAB_SOURCE,
+                'lab_api': self.LAB_SOURCE_FULL,
                 'field_source': self.FIELD_SOURCE,
+                'field_api': self.FIELD_SOURCE_FULL,
+                'field_collection_period': self.CRUX_COLLECTION_PERIOD,
+                'field_data_note': self.CRUX_DATA_FRESHNESS_NOTE,
                 'gap_threshold': f'{self.significant_gap}%',
             },
         )

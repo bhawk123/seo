@@ -55,6 +55,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 markers = [
     "e2e: End-to-end tests that test the full pipeline",
     "integration: Integration tests that may make network calls",

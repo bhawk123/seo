@@ -1723,3 +1723,33 @@ class EvidenceRecord:
 - `features/evidence_capture.feature` - Existing BDD scenarios (Phase 1)
 - `src/seo/models.py` - EvidenceRecord and EvidenceCollection dataclasses
 - `src/seo/technology_detector.py` - Reference implementation (Phase 1)
+
+---
+
+# Appendix C: Infrastructure Epics (from Spectrum)
+
+> **Added:** 2026-02-08
+> **Source:** BORROW.md analysis and `docs/SPECTRUM_BORROW_LOG.md`
+
+The following epics represent infrastructure improvements borrowed from the Spectrum project. These are complementary to the evidence capture epics and should be implemented to improve overall crawl reliability and efficiency.
+
+| Epic | Name | Priority | Stories | Feature File |
+|------|------|----------|---------|--------------|
+| E9 | Browser Infrastructure | Critical | 8 | `features/epic9_browser_infrastructure.feature` |
+| E10 | Rate Limiting & Metrics | High | 5 | `features/epic10_rate_limiting.feature` |
+| E11 | Selector Intelligence | High | 5 | `features/epic11_selector_intelligence.feature` |
+| E12 | AI/LLM Caching | Medium | 4 | `features/epic12_ai_caching.feature` |
+
+**Total: 4 Epics, 22 Stories**
+
+## Key Components to Borrow
+
+| Component | Source | Target | Priority |
+|-----------|--------|--------|----------|
+| BrowserPool | `spectrum/parallel/browser_pool.py` | `src/seo/browser_pool.py` | Critical |
+| undetected-chromedriver | `spectrum/crawler.py` | `src/seo/browser_config.py` | Critical |
+| AdaptiveRateLimiter | `spectrum/parallel/rate_limiter.py` | `src/seo/rate_limiter.py` | High |
+| SelectorLibrary | `spectrum/intelligence/selector_library.py` | `src/seo/selector_library.py` | High |
+| AICache | `spectrum/intelligence/ai_cache.py` | `src/seo/ai_cache.py` | Medium |
+
+For full details, see `docs/SPECTRUM_BORROW_LOG.md`.

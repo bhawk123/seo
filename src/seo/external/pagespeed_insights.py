@@ -195,6 +195,13 @@ class PageSpeedInsightsAPI:
             'strategy': self.strategy,
             'fetch_time': lighthouse.get('fetchTime'),
 
+            # Lighthouse metadata for evidence
+            'lighthouse_version': lighthouse.get('lighthouseVersion'),
+            'user_agent': lighthouse.get('userAgent'),
+            'requested_url': lighthouse.get('requestedUrl'),
+            'final_url': lighthouse.get('finalUrl'),
+            'run_warnings': lighthouse.get('runWarnings', []),
+
             # Lighthouse scores (0-100)
             'performance_score': scores['performance'],
             'accessibility_score': scores['accessibility'],
@@ -300,13 +307,21 @@ class PageSpeedInsightsAPI:
         Extract Chrome User Experience Report (CrUX) data.
 
         CrUX provides real-world data from actual Chrome users.
+        Note: CrUX data represents a 28-day rolling window of real user measurements.
         """
         if not loading_experience or 'metrics' not in loading_experience:
             return None
 
         metrics = loading_experience.get('metrics', {})
 
-        crux = {}
+        crux = {
+            # CrUX metadata for evidence
+            'origin_fallback': loading_experience.get('origin_fallback', False),
+            'initial_url': loading_experience.get('initial_url'),
+            # Note: CrUX uses a 28-day rolling window, data is typically 1-2 days old
+            'collection_period': '28-day rolling window',
+            'data_freshness': 'Real user data from last 28 days',
+        }
 
         # Largest Contentful Paint
         if 'LARGEST_CONTENTFUL_PAINT_MS' in metrics:

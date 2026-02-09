@@ -18,6 +18,10 @@ from seo.image_analyzer import ImageAnalyzer
 
 
 class ReportGenerator:
+    """Generates professional HTML reports from crawl results.
+
+    Enhanced with challenge/CAPTCHA detection metrics per STORY-INFRA-006.
+    """
     """Generates professional HTML reports from crawl results."""
 
     # Pattern definitions with remediation steps
@@ -349,6 +353,9 @@ class ReportGenerator:
         lab_field_comparison = analyzer_results['lab_field']
         image_analysis = analyzer_results['image']
 
+        # Process challenge/CAPTCHA detection (STORY-INFRA-006)
+        challenge_detection = self._process_challenge_detection(metadata_list)
+
         # Load PSI data for embedded modal viewer
         psi_data = self._load_psi_data(crawl_dir)
 
@@ -388,6 +395,8 @@ class ReportGenerator:
             image_analysis=image_analysis,
             page_matrix=page_matrix,
             psi_data=psi_data,
+            # Challenge/CAPTCHA detection (STORY-INFRA-006)
+            challenge_detection=challenge_detection,
         )
 
         # Save report
@@ -1819,6 +1828,108 @@ class ReportGenerator:
                         setattr(page, key, value)
                 pages[url] = page
         return pages
+
+    def _process_challenge_detection(self, metadata_list: List[dict]) -> Dict:
+        """Process challenge/CAPTCHA detection results for report.
+
+        Analyzes pages for reCAPTCHA and other challenge detection data
+        captured during browser-based crawling (STORY-INFRA-006).
+
+        Args:
+            metadata_list: List of page metadata dictionaries
+
+        Returns:
+            Dictionary with challenge detection analysis for template
+        """
+        if not metadata_list:
+            return {'enabled': False}
+
+        # Collect challenge detection data
+        pages_with_challenges = []
+        challenge_types = {}
+        pages_skipped = []
+        blocking_challenges = 0
+        total_challenges_detected = 0
+
+        for page in metadata_list:
+            url = page.get('url', '')
+
+            # Check for challenge detection flags
+            challenge_detected = page.get('challenge_detected', False)
+            recaptcha_result = page.get('recaptcha_result', {})
+            blocking_result = page.get('blocking_result', {})
+            skipped = page.get('skipped_due_to_challenge', False)
+
+            if challenge_detected:
+                total_challenges_detected += 1
+
+                # Extract challenge type/version
+                version = recaptcha_result.get('version', 'unknown')
+                impact = recaptcha_result.get('automation_impact', 'unknown')
+
+                if version not in challenge_types:
+                    challenge_types[version] = 0
+                challenge_types[version] += 1
+
+                pages_with_challenges.append({
+                    'url': url,
+                    'title': page.get('title', '(No title)'),
+                    'version': version,
+                    'impact': impact,
+                    'blocking': blocking_result.get('is_blocking', False),
+                    'indicators': recaptcha_result.get('indicators', [])[:3],
+                })
+
+                if blocking_result.get('is_blocking', False):
+                    blocking_challenges += 1
+
+            if skipped:
+                pages_skipped.append({
+                    'url': url,
+                    'reason': blocking_result.get('reason', 'Challenge not resolved'),
+                })
+
+        total_pages = len(metadata_list)
+
+        if total_challenges_detected == 0:
+            return {
+                'enabled': True,
+                'total_pages': total_pages,
+                'challenges_detected': 0,
+                'challenge_rate': 0,
+                'status': 'clear',
+                'summary': 'No CAPTCHA or bot challenges detected during crawl.',
+            }
+
+        # Determine severity
+        challenge_rate = (total_challenges_detected / total_pages) * 100
+        if challenge_rate > 50:
+            status = 'critical'
+        elif challenge_rate > 20:
+            status = 'high'
+        elif challenge_rate > 5:
+            status = 'medium'
+        else:
+            status = 'low'
+
+        return {
+            'enabled': True,
+            'total_pages': total_pages,
+            'challenges_detected': total_challenges_detected,
+            'challenge_rate': round(challenge_rate, 1),
+            'blocking_challenges': blocking_challenges,
+            'pages_skipped': len(pages_skipped),
+            'challenge_types': challenge_types,
+            'pages_with_challenges': sorted(
+                pages_with_challenges,
+                key=lambda x: (x['blocking'], x['impact'] == 'high'),
+                reverse=True
+            )[:20],
+            'skipped_pages': pages_skipped[:10],
+            'status': status,
+            'summary': f'{total_challenges_detected} pages ({challenge_rate:.1f}%) had CAPTCHA/bot challenges.',
+            'has_issues': blocking_challenges > 0 or len(pages_skipped) > 0,
+        }
 
     def _run_analyzers_parallel(self, pages: Dict[str, PageMetadata]) -> Dict[str, Dict]:
         """Run all Tier 1 & Tier 2 analyzers in parallel.

@@ -2,9 +2,14 @@
 
 from typing import Optional
 from datetime import datetime
+from pathlib import Path
 import hashlib
 import os
+import time
+import logging
 import toon
+
+logger = logging.getLogger(__name__)
 
 from seo.models import (
     EvidenceRecord,
@@ -13,9 +18,23 @@ from seo.models import (
     EvidenceSourceType,
 )
 
+# Import AICache for response caching (ported from Spectrum)
+try:
+    from seo.intelligence import AICache
+    AICACHE_AVAILABLE = True
+except ImportError:
+    AICACHE_AVAILABLE = False
+    AICache = None
+
 
 class LLMClient:
-    """Client for interacting with LLM for SEO analysis."""
+    """Client for interacting with LLM for SEO analysis.
+
+    Supports optional response caching via AICache to reduce API costs.
+    """
+
+    # Source label for evidence provenance
+    SOURCE_LABEL = "LLM Inference"
 
     def __init__(
         self,
@@ -23,6 +42,9 @@ class LLMClient:
         model: str = "gpt-4",
         provider: str = "openai",
         max_tokens: int = 8192,
+        cache_enabled: bool = True,
+        cache_dir: Optional[Path] = None,
+        cache_ttl_hours: int = 24,
     ):
         """Initialize the LLM client.
 
@@ -31,6 +53,9 @@ class LLMClient:
             model: Model name to use
             provider: LLM provider (openai, anthropic, etc.)
             max_tokens: Maximum tokens for LLM response (default: 8192)
+            cache_enabled: Whether to cache LLM responses (default: True)
+            cache_dir: Directory for cache storage (default: ~/.seo/cache)
+            cache_ttl_hours: Cache TTL in hours (default: 24)
         """
         self.api_key = api_key or os.getenv("LLM_API_KEY")
         self.model = model
@@ -41,6 +66,30 @@ class LLMClient:
             raise ValueError(
                 "API key must be provided or set in LLM_API_KEY environment variable"
             )
+
+        # Initialize cache if available and enabled
+        self._cache: Optional[AICache] = None
+        self._cache_hits = 0
+        self._cache_misses = 0
+
+        if cache_enabled and AICACHE_AVAILABLE:
+            cache_path = cache_dir or Path.home() / ".seo" / "cache"
+            try:
+                self._cache = AICache(
+                    cache_dir=cache_path,
+                    ttl_hours=cache_ttl_hours,
+                    max_size_mb=100,
+                    enabled=True,
+                )
+                logger.info(f"LLM cache enabled at {cache_path}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM cache: {e}")
+                self._cache = None
+
+    @property
+    def source_api(self) -> str:
+        """Get full source API identifier for evidence provenance."""
+        return f"{self.provider}_{self.model}".replace("-", "_").replace(".", "_")
 
     def analyze_seo(
         self, content: str, metadata: dict, url: str
@@ -63,26 +112,191 @@ class LLMClient:
         # Generate prompt hash for reproducibility
         prompt_hash = self._compute_prompt_hash(prompt)
 
-        response = self._call_llm(prompt)
+        # Check cache first
+        cache_context = {'model': self.model, 'provider': self.provider, 'url': url}
+        if self._cache:
+            cached_response = self._cache.get(prompt, context=cache_context)
+            if cached_response:
+                self._cache_hits += 1
+                logger.debug(f"Cache hit for {url} (total hits: {self._cache_hits})")
+                # Return cached result with cache metadata
+                cached_response['from_cache'] = True
+                return cached_response
 
-        result = self._parse_seo_response(response)
+        self._cache_misses += 1
 
-        # Create evidence collection for this LLM analysis
-        evidence = self._create_evidence(
-            result=result,
-            input_summary=input_summary,
-            prompt_hash=prompt_hash,
-            raw_response=response,
-            url=url,
+        try:
+            response = self._call_llm(prompt)
+
+            # Handle empty response (edge case)
+            if not response or not response.strip():
+                return self._create_error_result(
+                    error_message="LLM returned empty response",
+                    input_summary=input_summary,
+                    prompt_hash=prompt_hash,
+                    url=url,
+                    raw_response=response,
+                )
+
+            result = self._parse_seo_response(response)
+
+            # Check for parsing failure (edge case)
+            if not result or result.get('parse_error'):
+                return self._create_error_result(
+                    error_message=result.get('parse_error', 'Failed to parse LLM response'),
+                    input_summary=input_summary,
+                    prompt_hash=prompt_hash,
+                    url=url,
+                    raw_response=response,
+                )
+
+            # Create evidence collection for this LLM analysis
+            evidence = self._create_evidence(
+                result=result,
+                input_summary=input_summary,
+                prompt_hash=prompt_hash,
+                raw_response=response,
+                url=url,
+            )
+
+            # Add evidence to result
+            result['evidence'] = evidence
+            result['ai_generated'] = True
+            result['model_id'] = self.model
+            result['provider'] = self.provider
+            result['from_cache'] = False
+
+            # Cache the successful result
+            if self._cache:
+                try:
+                    self._cache.put(
+                        prompt=prompt,
+                        response=result,
+                        model=self.model,
+                        context=cache_context,
+                    )
+                    logger.debug(f"Cached LLM response for {url}")
+                except Exception as e:
+                    logger.warning(f"Failed to cache response: {e}")
+
+            return result
+
+        except Exception as e:
+            # Edge case: LLM API failure - still capture partial evidence
+            logger.error(f"LLM analysis failed for {url}: {e}")
+            return self._create_error_result(
+                error_message=str(e),
+                input_summary=input_summary,
+                prompt_hash=prompt_hash,
+                url=url,
+                raw_response=None,
+            )
+
+    def _create_error_result(
+        self,
+        error_message: str,
+        input_summary: dict,
+        prompt_hash: str,
+        url: str,
+        raw_response: Optional[str] = None,
+    ) -> dict:
+        """Create a result dict for LLM errors, preserving partial evidence.
+
+        PARTIAL EVIDENCE CAPTURE
+        ========================
+        Even when LLM analysis fails, we capture what evidence is available.
+        This serves several purposes:
+
+        1. DEBUGGING:
+           - Error messages are preserved in evidence records
+           - Raw response (if any) is captured for investigation
+           - Prompt hash allows reproduction of the exact prompt
+
+        2. AUDIT TRAIL:
+           - Records that an analysis was attempted
+           - Shows what inputs were provided
+           - Documents the failure for transparency
+
+        3. RECOVERY:
+           - Preserved input_summary allows retry with same data
+           - prompt_hash enables comparison across retries
+           - regenerate_recommendations.py can use this info
+
+        WHAT IS CAPTURED:
+        - component_id: 'llm_scoring' (identifies the failing component)
+        - finding: 'llm_error' (categorizes as error)
+        - evidence_string: The error message
+        - confidence: LOW (errors never have high confidence)
+        - model_id, provider: Which LLM was attempted
+        - prompt_hash: For reproducibility
+        - input_summary: What data was sent
+        - raw_response: First 1000 chars if available (truncated for storage)
+        - recommendation: Suggests using regenerate script
+
+        DISTINGUISHING FROM COMPLETE EVIDENCE:
+        - error_flag=True in result dict
+        - confidence is always LOW
+        - severity='error' in evidence record
+        - overall_score and sub-scores are 0
+
+        Args:
+            error_message: Description of the error
+            input_summary: Summary of inputs to LLM
+            prompt_hash: Hash of the prompt
+            url: URL being analyzed
+            raw_response: Raw LLM response if available (truncated to 1000 chars)
+
+        Returns:
+            Result dict with error info and partial evidence
+        """
+        # Create evidence record even for failures
+        evidence_collection = EvidenceCollection(
+            finding='seo_analysis_error',
+            component_id='llm_scoring',
         )
 
-        # Add evidence to result
-        result['evidence'] = evidence
-        result['ai_generated'] = True
-        result['model_id'] = self.model
-        result['provider'] = self.provider
+        error_record = EvidenceRecord(
+            component_id='llm_scoring',
+            finding='llm_error',
+            evidence_string=error_message,
+            confidence=ConfidenceLevel.LOW,  # Errors always have low confidence
+            timestamp=datetime.now(),
+            source=self.SOURCE_LABEL,
+            source_type=EvidenceSourceType.LLM_INFERENCE,
+            source_location=url,
+            ai_generated=True,
+            model_id=self.model,
+            provider=self.provider,
+            source_api=self.source_api,
+            prompt_hash=prompt_hash,
+            input_summary=input_summary,
+            severity='error',
+            recommendation='Run regenerate_recommendations.py to retry LLM analysis',
+        )
 
-        return result
+        # Capture raw response if available (for debugging)
+        if raw_response:
+            error_record.measured_value = {'raw_response': raw_response[:1000]}
+
+        evidence_collection.add_record(error_record)
+
+        return {
+            'overall_score': 0,
+            'title_score': 0,
+            'description_score': 0,
+            'content_score': 0,
+            'technical_score': 0,
+            'strengths': [],
+            'weaknesses': [],
+            'recommendations': [],
+            'reasoning': f"Analysis failed: {error_message}",
+            'evidence': evidence_collection.to_dict(),
+            'ai_generated': True,
+            'model_id': self.model,
+            'provider': self.provider,
+            'error': error_message,
+            'error_flag': True,
+        }
 
     def _build_input_summary(
         self, content: str, metadata: dict, url: str
@@ -167,6 +381,7 @@ class LLMClient:
             reasoning=reasoning,
             input_summary=input_summary,
             prompt_hash=prompt_hash,
+            provider=self.provider,
         )
         overall_record.source_location = url
         overall_record.measured_value = result.get('overall_score', 0)
@@ -188,12 +403,15 @@ class LLMClient:
                     evidence_string=description,
                     confidence=ConfidenceLevel.MEDIUM,  # LLM outputs capped at MEDIUM
                     timestamp=datetime.now(),
-                    source='LLM Inference',
+                    source=self.SOURCE_LABEL,
                     source_type=EvidenceSourceType.LLM_INFERENCE,
                     source_location=url,
                     ai_generated=True,
                     model_id=self.model,
+                    provider=self.provider,
+                    source_api=self.source_api,
                     measured_value=result[field],
+                    confidence_override_reason='LLM-only evaluations capped at MEDIUM per hallucination mitigation policy',
                 )
                 evidence_collection.add_record(record)
 
@@ -240,7 +458,15 @@ Please provide:
 3. List of strengths
 4. List of weaknesses
 5. Actionable recommendations for improvement
-6. A brief reasoning explaining the overall score, referencing specific measurements
+6. A DETAILED reasoning explaining the overall score
+
+CRITICAL REASONING REQUIREMENTS:
+- You MUST reference EXACT measured values from the metadata above
+- For title issues: cite the actual title length (e.g., "Title is 23 characters, below the recommended 50-60")
+- For content issues: cite the actual word count (e.g., "Only 187 words, well below 300 minimum")
+- For description issues: cite the actual length (e.g., "Description at 45 chars is too short")
+- For H1 issues: cite the actual count (e.g., "Page has 0 H1 tags" or "Page has 3 H1 tags, should have exactly 1")
+- Reference thresholds when explaining deductions
 
 Format your response ONLY as TOON (Token-Oriented Object Notation) with NO additional text.
 Use this exact structure:
@@ -252,26 +478,79 @@ technical_score: <number>
 strengths[N]: <comma-separated values>
 weaknesses[N]: <comma-separated values>
 recommendations[N]: <comma-separated values>
-reasoning: <one paragraph explaining the overall score with specific data references>
+reasoning: <paragraph with SPECIFIC data references like "title at X chars", "word count of Y", "Z H1 tags">
 
 Where [N] is the count of items in each array.
 """
 
-    def _call_llm(self, prompt: str) -> str:
-        """Call the LLM with the given prompt.
+    def _call_llm(
+        self,
+        prompt: str,
+        max_retries: int = 3,
+        retry_delay: float = 2.0,
+        backoff_factor: float = 2.0,
+    ) -> str:
+        """Call the LLM with the given prompt, with retry logic.
+
+        Implements exponential backoff for transient failures (connection errors,
+        rate limits, timeouts). Non-retryable errors (auth, invalid model) are
+        raised immediately.
 
         Args:
             prompt: The prompt to send
+            max_retries: Maximum number of retry attempts (default: 3)
+            retry_delay: Initial delay between retries in seconds (default: 2.0)
+            backoff_factor: Multiplier for delay after each retry (default: 2.0)
 
         Returns:
             LLM response text
+
+        Raises:
+            Exception: If all retries are exhausted or non-retryable error occurs
         """
-        if self.provider == "openai":
-            return self._call_openai(prompt)
-        elif self.provider == "anthropic":
-            return self._call_anthropic(prompt)
-        else:
-            raise ValueError(f"Unsupported provider: {self.provider}")
+        last_exception = None
+        current_delay = retry_delay
+
+        for attempt in range(max_retries + 1):
+            try:
+                if self.provider == "openai":
+                    return self._call_openai(prompt)
+                elif self.provider == "anthropic":
+                    return self._call_anthropic(prompt)
+                else:
+                    raise ValueError(f"Unsupported provider: {self.provider}")
+
+            except Exception as e:
+                error_str = str(e).lower()
+                last_exception = e
+
+                # Non-retryable errors - fail fast
+                non_retryable = [
+                    'invalid api key',
+                    'authentication',
+                    'unauthorized',
+                    'invalid_api_key',
+                    'model not found',
+                    'invalid model',
+                ]
+                if any(err in error_str for err in non_retryable):
+                    logger.error(f"Non-retryable LLM error: {e}")
+                    raise
+
+                # Retryable errors - connection, rate limit, timeout
+                if attempt < max_retries:
+                    logger.warning(
+                        f"LLM call failed (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                        f"Retrying in {current_delay:.1f}s..."
+                    )
+                    time.sleep(current_delay)
+                    current_delay *= backoff_factor
+                else:
+                    logger.error(
+                        f"LLM call failed after {max_retries + 1} attempts: {e}"
+                    )
+
+        raise last_exception
 
     def _call_openai(self, prompt: str) -> str:
         """Call OpenAI API.
@@ -387,3 +666,36 @@ Where [N] is the count of items in each array.
                 ],
                 "error": str(e),
             }
+
+    def get_cache_stats(self) -> dict:
+        """Get cache statistics for monitoring.
+
+        Returns:
+            Dictionary with cache hit/miss stats and storage info
+        """
+        stats = {
+            'cache_enabled': self._cache is not None,
+            'cache_hits': self._cache_hits,
+            'cache_misses': self._cache_misses,
+            'hit_rate': (
+                self._cache_hits / (self._cache_hits + self._cache_misses)
+                if (self._cache_hits + self._cache_misses) > 0
+                else 0.0
+            ),
+        }
+
+        if self._cache:
+            cache_stats = self._cache.stats()
+            stats.update({
+                'cache_entries': cache_stats.get('entry_count', 0),
+                'cache_size_mb': cache_stats.get('size_mb', 0),
+                'cache_ttl_hours': cache_stats.get('ttl_hours', 0),
+            })
+
+        return stats
+
+    def clear_cache(self) -> None:
+        """Clear all cached responses."""
+        if self._cache:
+            self._cache.clear()
+            logger.info("LLM cache cleared")

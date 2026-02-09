@@ -62,6 +62,43 @@ SLOW_PAGE_CRITICAL_THRESHOLD_SECONDS = 5.0
 # Word count threshold for critical thin content
 THIN_CONTENT_CRITICAL_THRESHOLD = 100
 
+# -----------------------------------------------------------------------------
+# Title Length Thresholds (configurable per Gemini recommendation)
+# -----------------------------------------------------------------------------
+# Short title: Titles shorter than this may lack SEO value
+TITLE_LENGTH_SHORT_THRESHOLD = 30  # characters
+
+# Long title: Titles longer than this may be truncated in SERPs
+TITLE_LENGTH_LONG_THRESHOLD = 60  # characters
+
+# Optimal title length range (for reference)
+TITLE_LENGTH_OPTIMAL_MIN = 50  # characters
+TITLE_LENGTH_OPTIMAL_MAX = 60  # characters
+
+# -----------------------------------------------------------------------------
+# Meta Description Thresholds (configurable per Gemini recommendation)
+# -----------------------------------------------------------------------------
+# Short description: May not fully utilize SERP space
+META_DESCRIPTION_SHORT_THRESHOLD = 120  # characters
+
+# Long description: May be truncated in SERPs
+META_DESCRIPTION_LONG_THRESHOLD = 160  # characters
+
+# -----------------------------------------------------------------------------
+# Content Quality Thresholds
+# -----------------------------------------------------------------------------
+# Minimum word count for adequate content
+THIN_CONTENT_WORD_THRESHOLD = 300  # words
+
+# Slow page load time threshold
+SLOW_PAGE_THRESHOLD_SECONDS = 3.0  # seconds
+
+# -----------------------------------------------------------------------------
+# Content Sample Configuration
+# -----------------------------------------------------------------------------
+# Length of content sample for thin content evidence
+THIN_CONTENT_SAMPLE_LENGTH = 200  # characters
+
 
 # =============================================================================
 # Crawler Constants
@@ -99,6 +136,9 @@ MAX_SESSION_ERRORS_BEFORE_ABORT = 5
 
 # Default PageSpeed Insights sample rate
 DEFAULT_PSI_SAMPLE_RATE = 0.1
+
+# PSI coverage threshold (percentage) - warn if coverage falls below this
+PSI_COVERAGE_THRESHOLD = 90.0
 
 # Maximum page pool retries
 MAX_PAGE_POOL_RETRIES = 3

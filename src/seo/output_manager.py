@@ -223,6 +223,44 @@ class OutputManager:
             import shutil
             shutil.copy(viewer_src, viewer_dst)
 
+    def save_psi_coverage(
+        self,
+        crawl_dir: Path,
+        coverage_stats: dict,
+    ) -> None:
+        """Save PSI coverage statistics for evidence and reporting.
+
+        Args:
+            crawl_dir: Directory to save stats in
+            coverage_stats: Coverage statistics from crawler.get_psi_coverage()
+        """
+        if not coverage_stats:
+            return
+
+        lighthouse_dir = crawl_dir / "lighthouse"
+        lighthouse_dir.mkdir(exist_ok=True)
+
+        coverage_path = lighthouse_dir / "_coverage.json"
+
+        # Add timestamp for evidence trail
+        coverage_data = {
+            'timestamp': datetime.now().isoformat(),
+            **coverage_stats,
+        }
+
+        with open(coverage_path, "w") as f:
+            json.dump(coverage_data, f, indent=2)
+
+        logger.info(f"PSI coverage stats saved to {coverage_path}")
+
+        # Log warning if coverage is below threshold
+        if not coverage_stats.get('meets_threshold', True):
+            threshold = coverage_stats.get('threshold', 90.0)
+            logger.warning(
+                f"PSI coverage ({coverage_stats.get('coverage_percentage', 0):.1f}%) "
+                f"is below {threshold}% threshold"
+            )
+
     def _page_metadata_to_dict(self, page: PageMetadata) -> dict:
         """Convert PageMetadata to dictionary for JSON serialization.
 

@@ -26,6 +26,7 @@ from seo.models import (
     ConfidenceLevel,
     EvidenceSourceType,
     ICEScore,
+    ICEJustification,
 )
 from seo.content_quality import ContentQualityAnalyzer
 from seo.advanced_analyzer import (
@@ -1001,11 +1002,20 @@ Please provide:
 
 Format your response clearly with headers, bullet points, and ICE scores in brackets [I:X C:X E:X = ICE:X.X] for easy prioritization.
 
+CRITICAL: For each recommendation, you MUST provide structured justifications:
+
 Example format:
 - [I:9 C:8 E:7 = ICE:5.04] Fix missing meta descriptions on 15 pages
-  Impact: Improves CTR from search results
+  Impact: (9/10) Improves CTR from search results by 5-10%, directly affects rankings
+  Confidence: (8/10) Based on verified crawl data showing exactly 15 pages affected
+  Ease: (7/10) Requires 2-3 hours of content writing, no technical changes needed
   Action: Write unique descriptions for each page
   Estimated effort: 2-3 hours
+
+The justifications MUST:
+- Impact: Explain SEO/traffic/conversion benefit with specifics
+- Confidence: Reference whether data is from crawl (high) or estimated (lower)
+- Ease: Estimate development effort, risk, and timeline
 
 IMPORTANT: Do NOT include any closing questions, offers for further assistance, or phrases like "Would you like me to..." at the end of your response. End with the actionable recommendations only.
 """
@@ -1045,6 +1055,52 @@ IMPORTANT: Do NOT include any closing questions, offers for further assistance, 
             parsed_ice_scores = self._parse_ice_recommendations(response)
             categorized_recommendations = self._categorize_ice_recommendations(parsed_ice_scores)
 
+            # Validate LLM claims against actual data (hallucination detection)
+            claim_validations = self._validate_recommendation_claims(
+                response, issues_summary, len(site_data)
+            )
+
+            # Add evidence for claim validations
+            mismatches = [v for v in claim_validations if not v['is_match']]
+            if claim_validations:
+                validation_record = EvidenceRecord(
+                    component_id='llm_recommendations',
+                    finding='claim_validation',
+                    evidence_string=f"Validated {len(claim_validations)} claims, {len(mismatches)} mismatches",
+                    confidence=ConfidenceLevel.HIGH,  # Validation is deterministic
+                    timestamp=datetime.now(),
+                    source='Claim Validator',
+                    source_type=EvidenceSourceType.CALCULATION,
+                    ai_generated=False,
+                    measured_value={
+                        'total_claims_checked': len(claim_validations),
+                        'verified_claims': len(claim_validations) - len(mismatches),
+                        'mismatched_claims': len(mismatches),
+                        'mismatches': mismatches,
+                    },
+                    severity='warning' if mismatches else 'info',
+                    recommendation='Review mismatched claims for potential hallucination' if mismatches else None,
+                )
+                evidence_collection.add_record(validation_record)
+
+            # Add individual evidence for each validated claim with source linking
+            for validation in claim_validations:
+                claim_record = EvidenceRecord(
+                    component_id='llm_recommendations',
+                    finding=f"claim:{validation['metric_name']}",
+                    evidence_string=validation['matched_text'],
+                    confidence=ConfidenceLevel.HIGH if validation['is_match'] else ConfidenceLevel.LOW,
+                    timestamp=datetime.now(),
+                    source='Claim Validator',
+                    source_type=EvidenceSourceType.CALCULATION,
+                    source_location=validation['component_ref'],
+                    ai_generated=False,
+                    measured_value=validation['actual_value'],
+                    severity=validation['severity'],
+                    recommendation=validation['message'] if not validation['is_match'] else None,
+                )
+                evidence_collection.add_record(claim_record)
+
             # Add evidence for parsed recommendations
             if parsed_ice_scores:
                 parse_record = EvidenceRecord(
@@ -1072,6 +1128,7 @@ IMPORTANT: Do NOT include any closing questions, offers for further assistance, 
                 'recommendations': response,
                 'parsed_recommendations': parsed_ice_scores,
                 'categorized_recommendations': categorized_recommendations,
+                'claim_validations': claim_validations,
                 'evidence': evidence_collection.to_dict(),
                 'ai_generated': True,
                 'model_id': self.llm.model,
@@ -1092,6 +1149,9 @@ IMPORTANT: Do NOT include any closing questions, offers for further assistance, 
 
         Extracts recommendations in the format:
         [I:X C:X E:X = ICE:X.X] Action description
+        Impact: (X/10) justification
+        Confidence: (X/10) justification
+        Ease: (X/10) justification
 
         Args:
             llm_response: Raw LLM response text
@@ -1104,14 +1164,28 @@ IMPORTANT: Do NOT include any closing questions, offers for further assistance, 
         # Pattern to match: [I:9 C:8 E:7 = ICE:5.04] or variations
         # Captures: impact, confidence, ease, ice_score, and the action text
         ice_pattern = re.compile(
-            r'\[I:(\d+(?:\.\d+)?)\s*C:(\d+(?:\.\d+)?)\s*E:(\d+(?:\.\d+)?)\s*=\s*ICE:(\d+(?:\.\d+)?)\]\s*(.+?)(?=\n\s*\[I:|$)',
+            r'\[I:(\d+(?:\.\d+)?)\s*C:(\d+(?:\.\d+)?)\s*E:(\d+(?:\.\d+)?)\s*=\s*ICE:(\d+(?:\.\d+)?)\]\s*(.+?)(?=\n\s*[-*]\s*\[I:|$)',
             re.MULTILINE | re.DOTALL
         )
 
         # Also try alternate pattern without calculated ICE score
         alt_pattern = re.compile(
-            r'\[I:(\d+(?:\.\d+)?)\s*C:(\d+(?:\.\d+)?)\s*E:(\d+(?:\.\d+)?)\]\s*(.+?)(?=\n\s*\[I:|$)',
+            r'\[I:(\d+(?:\.\d+)?)\s*C:(\d+(?:\.\d+)?)\s*E:(\d+(?:\.\d+)?)\]\s*(.+?)(?=\n\s*[-*]\s*\[I:|$)',
             re.MULTILINE | re.DOTALL
+        )
+
+        # Patterns to extract justifications
+        impact_just_pattern = re.compile(
+            r'Impact:\s*(?:\(\d+/10\))?\s*(.+?)(?=\n\s*(?:Confidence:|Ease:|Action:|Estimated|$))',
+            re.IGNORECASE | re.DOTALL
+        )
+        confidence_just_pattern = re.compile(
+            r'Confidence:\s*(?:\(\d+/10\))?\s*(.+?)(?=\n\s*(?:Ease:|Action:|Estimated|$))',
+            re.IGNORECASE | re.DOTALL
+        )
+        ease_just_pattern = re.compile(
+            r'Ease:\s*(?:\(\d+/10\))?\s*(.+?)(?=\n\s*(?:Action:|Estimated|$))',
+            re.IGNORECASE | re.DOTALL
         )
 
         matches = ice_pattern.findall(llm_response)
@@ -1143,6 +1217,38 @@ IMPORTANT: Do NOT include any closing questions, offers for further assistance, 
                     if impact_match:
                         expected = impact_match.group(1).strip()
 
+                # Extract ICE justifications
+                impact_just = ''
+                confidence_just = ''
+                ease_just = ''
+
+                impact_just_match = impact_just_pattern.search(action_text)
+                if impact_just_match:
+                    impact_just = impact_just_match.group(1).strip()
+
+                confidence_just_match = confidence_just_pattern.search(action_text)
+                if confidence_just_match:
+                    confidence_just = confidence_just_match.group(1).strip()
+
+                ease_just_match = ease_just_pattern.search(action_text)
+                if ease_just_match:
+                    ease_just = ease_just_match.group(1).strip()
+
+                # Check if justifications reference actual data
+                references_data = any([
+                    'crawl' in confidence_just.lower(),
+                    'verified' in confidence_just.lower(),
+                    'actual' in confidence_just.lower(),
+                    re.search(r'\d+\s*pages?', confidence_just, re.IGNORECASE),
+                ])
+
+                justification = ICEJustification(
+                    impact_justification=impact_just,
+                    confidence_justification=confidence_just,
+                    ease_justification=ease_just,
+                    references_data=references_data,
+                ) if any([impact_just, confidence_just, ease_just]) else None
+
                 ice_scores.append(ICEScore(
                     action=action,
                     impact=impact,
@@ -1152,6 +1258,7 @@ IMPORTANT: Do NOT include any closing questions, offers for further assistance, 
                     description=description,
                     implementation_steps=impl_steps,
                     expected_outcome=expected,
+                    justification=justification,
                 ))
             except (ValueError, IndexError):
                 continue
@@ -1188,6 +1295,151 @@ IMPORTANT: Do NOT include any closing questions, offers for further assistance, 
         ice_scores.sort(key=lambda x: x.ice_score, reverse=True)
 
         return ice_scores
+
+    def _validate_recommendation_claims(
+        self,
+        llm_response: str,
+        issues_summary: Dict[str, int],
+        total_pages: int,
+    ) -> List[Dict]:
+        """Validate that LLM-stated values match actual crawl data.
+
+        HALLUCINATION DETECTION MECHANISM
+        ==================================
+        This function implements claim validation to detect potential LLM hallucinations
+        by comparing numeric claims in the LLM response against actual crawl data.
+
+        HOW IT WORKS:
+        1. PATTERN EXTRACTION:
+           - Scans LLM response for numeric claims using regex patterns:
+             - Count patterns: "23 pages with missing meta description"
+             - Percentage patterns: "15% of pages have thin content"
+
+        2. METRIC MAPPING:
+           - Maps extracted claims to known crawl metrics:
+             - "missing meta description" -> missing_meta_descriptions count
+             - "missing title" -> missing_titles count
+             - "duplicate title" -> duplicate_titles count
+             - "missing h1" -> missing_h1 count
+             - "images without alt" -> images_without_alt count
+             - etc.
+
+        3. COMPARISON:
+           - Compares claimed values against actual values from issues_summary
+           - For percentages, calculates actual percentage from count/total_pages
+
+        4. FLAGGING:
+           - Exact matches: severity='info', is_match=True
+           - Mismatches: severity='warning', is_match=False
+
+        USAGE IN EVIDENCE:
+        - Results are added to EvidenceRecord with component_ref for traceability
+        - Mismatches trigger warnings in reports to alert users
+        - High mismatch rate can indicate unreliable LLM output
+
+        LIMITATIONS:
+        - Only detects numeric claims with known keywords
+        - Cannot validate qualitative statements or subjective assessments
+        - Relies on regex patterns which may miss some claim formats
+
+        Args:
+            llm_response: Raw LLM response text containing recommendations
+            issues_summary: Actual issue counts from crawl (Dict[metric_name, count])
+            total_pages: Total pages crawled (for percentage calculations)
+
+        Returns:
+            List of validation dicts, each containing:
+                - claim_type: 'count' or 'percentage'
+                - claimed_value: What the LLM stated
+                - actual_value: What the crawl data shows
+                - metric_name: The metric being validated
+                - component_ref: Component for traceability
+                - is_match: True if claimed matches actual
+                - matched_text: The original text that was matched
+                - severity: 'info' if match, 'warning' if mismatch
+                - message: Human-readable validation result
+        """
+        validations = []
+
+        # Map of keywords to actual metrics
+        metric_mappings = {
+            'missing meta description': ('missing_meta_descriptions', 'technical_seo'),
+            'missing description': ('missing_meta_descriptions', 'technical_seo'),
+            'missing title': ('missing_titles', 'technical_seo'),
+            'duplicate title': ('duplicate_titles', 'technical_seo'),
+            'missing h1': ('missing_h1', 'technical_seo'),
+            'multiple h1': ('multiple_h1', 'technical_seo'),
+            'image without alt': ('images_without_alt', 'technical_seo'),
+            'images without alt': ('images_without_alt', 'technical_seo'),
+            'missing alt': ('images_without_alt', 'technical_seo'),
+            'slow page': ('slow_pages', 'performance'),
+            'thin content': ('thin_content', 'content_quality'),
+            'missing canonical': ('missing_canonical', 'technical_seo'),
+        }
+
+        # Pattern to find numeric claims like "23 pages" or "15% of pages"
+        number_pattern = re.compile(
+            r'(\d+)\s*(?:pages?|urls?)\s+(?:with|have|having|missing|without)\s+([a-z\s]+)',
+            re.IGNORECASE
+        )
+        percent_pattern = re.compile(
+            r'(\d+(?:\.\d+)?)\s*%\s+(?:of\s+)?(?:pages?|urls?)\s+(?:with|have|having)\s+([a-z\s]+)',
+            re.IGNORECASE
+        )
+
+        # Find numeric claims
+        for match in number_pattern.finditer(llm_response):
+            claimed_count = int(match.group(1))
+            issue_desc = match.group(2).strip().lower()
+
+            # Find matching metric
+            for keyword, (metric_name, component) in metric_mappings.items():
+                if keyword in issue_desc:
+                    actual_count = issues_summary.get(metric_name, 0)
+                    is_match = claimed_count == actual_count
+
+                    validations.append({
+                        'claim_type': 'count',
+                        'claimed_value': claimed_count,
+                        'actual_value': actual_count,
+                        'metric_name': metric_name,
+                        'component_ref': component,
+                        'is_match': is_match,
+                        'matched_text': match.group(0),
+                        'severity': 'warning' if not is_match else 'info',
+                        'message': f"LLM claimed {claimed_count}, actual is {actual_count}" if not is_match else "Verified",
+                    })
+                    break
+
+        # Find percentage claims
+        for match in percent_pattern.finditer(llm_response):
+            claimed_pct = float(match.group(1))
+            issue_desc = match.group(2).strip().lower()
+
+            for keyword, (metric_name, component) in metric_mappings.items():
+                if keyword in issue_desc:
+                    actual_count = issues_summary.get(metric_name, 0)
+                    actual_pct = (actual_count / total_pages * 100) if total_pages > 0 else 0
+
+                    # Allow 1% tolerance for rounding
+                    is_match = abs(claimed_pct - actual_pct) <= 1.0
+
+                    validations.append({
+                        'claim_type': 'percentage',
+                        'claimed_value': claimed_pct,
+                        'actual_value': round(actual_pct, 1),
+                        'actual_count': actual_count,
+                        'total_pages': total_pages,
+                        'metric_name': metric_name,
+                        'component_ref': component,
+                        'is_match': is_match,
+                        'matched_text': match.group(0),
+                        'severity': 'warning' if not is_match else 'info',
+                        'message': f"LLM claimed {claimed_pct}%, actual is {actual_pct:.1f}%" if not is_match else "Verified",
+                    })
+                    break
+
+        return validations
 
     def _categorize_ice_recommendations(
         self,

@@ -30,6 +30,7 @@ from seo.constants import (
     DEFAULT_MAX_CONCURRENT_REQUESTS,
     MAX_SESSION_ERRORS_BEFORE_ABORT,
     DEFAULT_PSI_SAMPLE_RATE,
+    PSI_COVERAGE_THRESHOLD,
     MAX_PAGE_POOL_RETRIES,
     CRAWL_STATE_VERSION,
     DESKTOP_VIEWPORT_WIDTH,
@@ -240,6 +241,8 @@ class AsyncSiteCrawler:
         self._psi_api: Optional[PageSpeedInsightsAPI] = None
         self._psi_count = 0
         self._psi_results: Dict[str, dict] = {}  # Store raw PSI results for saving
+        self._psi_failures: Dict[str, str] = {}  # Track failed PSI requests with error reasons
+        self._psi_sampled_urls: List[str] = []   # URLs that were sampled for PSI analysis
         if self.enable_psi and psi_api_key:
             self._psi_api = PageSpeedInsightsAPI(
                 api_key=psi_api_key,
@@ -279,6 +282,51 @@ class AsyncSiteCrawler:
             Dictionary mapping URL to raw PSI result data
         """
         return self._psi_results
+
+    def get_psi_coverage(self) -> Dict[str, any]:
+        """Get PageSpeed Insights coverage statistics.
+
+        Returns:
+            Dictionary with comprehensive PSI coverage data for reporting:
+            - total_pages: Total pages crawled
+            - pages_sampled: Number of pages selected for PSI analysis
+            - pages_with_psi: Number of pages with successful PSI data
+            - pages_failed: Number of pages where PSI analysis failed
+            - pages_skipped: Number of pages not sampled
+            - coverage_percentage: Percentage of crawled pages with PSI data
+            - sample_coverage_percentage: Percentage of sampled pages with PSI data
+            - failed_urls: Dict mapping failed URLs to error messages
+            - skipped_urls: List of URLs not sampled for PSI
+            - meets_threshold: Whether coverage meets configured threshold (default 90%)
+            - threshold: The configured coverage threshold percentage
+        """
+        total_pages = len(self.site_data) if self.site_data else 0
+        pages_sampled = len(self._psi_sampled_urls)
+        pages_with_psi = self._psi_count
+        pages_failed = len(self._psi_failures)
+
+        # Calculate skipped URLs (not sampled)
+        sampled_set = set(self._psi_sampled_urls)
+        skipped_urls = [url for url in (self.site_data or {}).keys() if url not in sampled_set]
+
+        # Calculate coverage percentages
+        coverage_pct = (pages_with_psi / total_pages * 100) if total_pages > 0 else 0
+        sample_coverage_pct = (pages_with_psi / pages_sampled * 100) if pages_sampled > 0 else 0
+
+        return {
+            'total_pages': total_pages,
+            'pages_sampled': pages_sampled,
+            'pages_with_psi': pages_with_psi,
+            'pages_failed': pages_failed,
+            'pages_skipped': len(skipped_urls),
+            'coverage_percentage': round(coverage_pct, 1),
+            'sample_coverage_percentage': round(sample_coverage_pct, 1),
+            'sample_rate': self.psi_sample_rate,
+            'failed_urls': self._psi_failures.copy(),
+            'skipped_urls': skipped_urls,
+            'meets_threshold': coverage_pct >= PSI_COVERAGE_THRESHOLD,
+            'threshold': PSI_COVERAGE_THRESHOLD,
+        }
 
     def get_state(self, status: str = "running") -> dict:
         """Get the current crawl state for checkpointing/resume.
@@ -531,8 +579,13 @@ class AsyncSiteCrawler:
                 f"Retry stats: {sum(self.retry_counts.values())} retries "
                 f"across {len(self.retry_counts)} URLs"
             )
-        if self._psi_count > 0:
-            logger.info(f"PageSpeed Insights: {self._psi_count} pages analyzed")
+        if self._psi_count > 0 or self._psi_failures:
+            coverage = self.get_psi_coverage()
+            logger.info(f"PageSpeed Insights: {coverage['pages_with_psi']}/{coverage['total_pages']} pages ({coverage['coverage_percentage']:.1f}% coverage)")
+            if coverage['pages_failed'] > 0:
+                logger.warning(f"PSI failures: {coverage['pages_failed']} pages failed")
+            if not coverage['meets_threshold']:
+                logger.warning(f"PSI coverage below {PSI_COVERAGE_THRESHOLD}% threshold")
         logger.info(f"{'=' * 60}\n")
 
         return self.site_data
@@ -552,6 +605,9 @@ class AsyncSiteCrawler:
         import random
         sample_size = max(1, int(len(other_urls) * self.psi_sample_rate))
         sampled_urls = homepage_urls + random.sample(other_urls, min(sample_size, len(other_urls)))
+
+        # Track which URLs were sampled for coverage reporting
+        self._psi_sampled_urls = sampled_urls.copy()
 
         logger.info(f"\n{'=' * 60}")
         logger.info(f"Running PageSpeed Insights on {len(sampled_urls)} pages...")
@@ -622,6 +678,7 @@ class AsyncSiteCrawler:
 
             except Exception as e:
                 error_msg = str(e) if str(e) else type(e).__name__
+                self._psi_failures[url] = error_msg
                 logger.warning(f"  ⚠ PSI failed for {url}: {error_msg}")
 
     async def _launch_browser(self) -> None:

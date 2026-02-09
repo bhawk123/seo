@@ -4,6 +4,8 @@ Browser-based crawler using Playwright for JavaScript-rendered content.
 This module provides a BrowserCrawler class that uses Playwright to crawl
 web pages with full JavaScript execution, enabling analysis of SPAs and
 other JavaScript-heavy websites.
+
+Enhanced with reCAPTCHA/CAPTCHA detection per EPIC-SEO-INFRA-001 (STORY-INFRA-006).
 """
 import asyncio
 import logging
@@ -20,6 +22,13 @@ except ImportError:
     HAS_STEALTH = False
 
 from .browser_config import BrowserConfig
+from .utils.challenge_handler import (
+    detect_recaptcha,
+    check_recaptcha_blocking_async,
+    is_challenge_page,
+    RecaptchaDetectionResult,
+    BlockingCheckResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +48,12 @@ class BrowserCrawlResult:
     network_requests: List[Dict[str, Any]] = field(default_factory=list)
     screenshot: Optional[bytes] = None
     error: Optional[str] = None
+
+    # Challenge/CAPTCHA detection results (STORY-INFRA-006)
+    challenge_detected: bool = False
+    recaptcha_result: Optional[Dict[str, Any]] = None
+    blocking_result: Optional[Dict[str, Any]] = None
+    skipped_due_to_challenge: bool = False
 
 
 class BrowserCrawler:
@@ -216,6 +231,36 @@ class BrowserCrawler:
             # Wait for dynamic content to settle
             await self._wait_for_content(page)
 
+            # =========================================================
+            # Challenge/CAPTCHA Detection (STORY-INFRA-006)
+            # =========================================================
+            recaptcha_result = None
+            blocking_result = None
+            challenge_detected = False
+            skipped_due_to_challenge = False
+
+            if self._config.challenge_detection:
+                # Detect reCAPTCHA with version identification
+                recaptcha_detection = await self._detect_recaptcha_async(page)
+                if recaptcha_detection.detected:
+                    challenge_detected = True
+                    recaptcha_result = recaptcha_detection.to_dict()
+                    logger.warning(
+                        f"reCAPTCHA detected on {url}: version={recaptcha_detection.version}, "
+                        f"impact={recaptcha_detection.automation_impact}"
+                    )
+
+                    # Check if challenge is blocking progress
+                    blocking_check = await check_recaptcha_blocking_async(
+                        page,
+                        auto_resolve_timeout=self._config.challenge_auto_timeout,
+                    )
+                    blocking_result = blocking_check.to_dict()
+
+                    if blocking_check.should_skip:
+                        skipped_due_to_challenge = True
+                        logger.warning(f"Skipping {url} due to unresolved challenge")
+
             load_time = time.time() - start_time
 
             # Get rendered HTML
@@ -234,7 +279,8 @@ class BrowserCrawler:
             headers = dict(response.headers) if response else {}
             final_url = page.url
 
-            logger.info(f"Crawl complete: {url} (status={status_code}, time={load_time:.2f}s)")
+            challenge_info = f", challenge={challenge_detected}" if challenge_detected else ""
+            logger.info(f"Crawl complete: {url} (status={status_code}, time={load_time:.2f}s{challenge_info})")
 
             return BrowserCrawlResult(
                 url=url,
@@ -247,6 +293,10 @@ class BrowserCrawler:
                 console_errors=console_errors,
                 network_requests=network_requests,
                 screenshot=screenshot,
+                challenge_detected=challenge_detected,
+                recaptcha_result=recaptcha_result,
+                blocking_result=blocking_result,
+                skipped_due_to_challenge=skipped_due_to_challenge,
             )
 
         except Exception as e:
@@ -481,6 +531,59 @@ class BrowserCrawler:
 
         # Final delay for any remaining rendering
         await page.wait_for_timeout(1000)
+
+    async def _detect_recaptcha_async(self, page) -> RecaptchaDetectionResult:
+        """
+        Async version of reCAPTCHA detection for Playwright async pages.
+
+        Args:
+            page: Async Playwright Page instance
+
+        Returns:
+            RecaptchaDetectionResult with version and automation impact
+        """
+        from .utils.challenge_handler import (
+            RECAPTCHA_VERSION_SELECTORS,
+            RECAPTCHA_IMPACT,
+        )
+
+        result = RecaptchaDetectionResult()
+
+        # Check each version in order of specificity
+        for version, selectors in RECAPTCHA_VERSION_SELECTORS.items():
+            for selector in selectors:
+                try:
+                    count = await page.locator(selector).count()
+                    if count > 0:
+                        result.indicators.append(selector)
+                        if result.version is None:
+                            result.version = version
+                except Exception:
+                    continue
+
+        # Set detection status and impact
+        if result.version:
+            result.detected = True
+            result.automation_impact = RECAPTCHA_IMPACT.get(result.version, "medium")
+        else:
+            # Check for generic reCAPTCHA indicators
+            generic_selectors = [
+                "iframe[src*='recaptcha']",
+                "iframe[title*='reCAPTCHA']",
+                "script[src*='recaptcha']",
+            ]
+            for selector in generic_selectors:
+                try:
+                    count = await page.locator(selector).count()
+                    if count > 0:
+                        result.detected = True
+                        result.indicators.append(selector)
+                        result.automation_impact = "medium"
+                        break
+                except Exception:
+                    continue
+
+        return result
 
     async def _get_performance_metrics(self, page) -> Dict[str, float]:
         """

@@ -20,6 +20,13 @@ from seo.constants import (
     SEVERITY_ESCALATION_IMAGES_THRESHOLD,
     SLOW_PAGE_CRITICAL_THRESHOLD_SECONDS,
     THIN_CONTENT_CRITICAL_THRESHOLD,
+    TITLE_LENGTH_SHORT_THRESHOLD,
+    TITLE_LENGTH_LONG_THRESHOLD,
+    META_DESCRIPTION_SHORT_THRESHOLD,
+    META_DESCRIPTION_LONG_THRESHOLD,
+    THIN_CONTENT_WORD_THRESHOLD,
+    SLOW_PAGE_THRESHOLD_SECONDS,
+    THIN_CONTENT_SAMPLE_LENGTH,
 )
 
 
@@ -27,11 +34,14 @@ class TechnicalAnalyzer:
     """Analyzes technical SEO issues across crawled pages."""
 
     # Thresholds used for issue detection (documented for evidence)
+    # These reference configurable constants from constants.py
     THRESHOLDS = {
-        'meta_description_short': {'operator': '<', 'value': 120, 'unit': 'characters'},
-        'meta_description_long': {'operator': '>', 'value': 160, 'unit': 'characters'},
-        'load_time_slow': {'operator': '>', 'value': 3.0, 'unit': 'seconds'},
-        'thin_content': {'operator': '<', 'value': 300, 'unit': 'words'},
+        'title_short': {'operator': '<', 'value': TITLE_LENGTH_SHORT_THRESHOLD, 'unit': 'characters'},
+        'title_long': {'operator': '>', 'value': TITLE_LENGTH_LONG_THRESHOLD, 'unit': 'characters'},
+        'meta_description_short': {'operator': '<', 'value': META_DESCRIPTION_SHORT_THRESHOLD, 'unit': 'characters'},
+        'meta_description_long': {'operator': '>', 'value': META_DESCRIPTION_LONG_THRESHOLD, 'unit': 'characters'},
+        'load_time_slow': {'operator': '>', 'value': SLOW_PAGE_THRESHOLD_SECONDS, 'unit': 'seconds'},
+        'thin_content': {'operator': '<', 'value': THIN_CONTENT_WORD_THRESHOLD, 'unit': 'words'},
     }
 
     def __init__(self):
@@ -211,6 +221,34 @@ class TechnicalAnalyzer:
             )
         else:
             titles_seen[page.title].append(url)
+            title_length = len(page.title)
+
+            # Check for short title
+            if title_length < TITLE_LENGTH_SHORT_THRESHOLD:
+                issues.short_titles.append((url, title_length))
+                self._add_evidence(
+                    issue_type='short_titles',
+                    url=url,
+                    finding='short_title',
+                    evidence_string=page.title,
+                    measured_value=title_length,
+                    unit='characters',
+                    threshold=self.THRESHOLDS['title_short'],
+                    severity='warning',
+                )
+            # Check for long title
+            elif title_length > TITLE_LENGTH_LONG_THRESHOLD:
+                issues.long_titles.append((url, title_length))
+                self._add_evidence(
+                    issue_type='long_titles',
+                    url=url,
+                    finding='long_title',
+                    evidence_string=page.title[:100],  # Truncate for evidence
+                    measured_value=title_length,
+                    unit='characters',
+                    threshold=self.THRESHOLDS['title_long'],
+                    severity='warning',
+                )
 
     def _check_meta_description_issues(
         self, url: str, page: PageMetadata, issues: TechnicalIssues
@@ -233,7 +271,7 @@ class TechnicalAnalyzer:
                 threshold={'operator': '==', 'value': 0, 'unit': 'characters'},
                 severity='critical',
             )
-        elif len(page.description) < 120:
+        elif len(page.description) < META_DESCRIPTION_SHORT_THRESHOLD:
             issues.short_meta_descriptions.append(
                 (url, len(page.description))
             )
@@ -241,19 +279,19 @@ class TechnicalAnalyzer:
                 issue_type='short_meta_descriptions',
                 url=url,
                 finding='short_meta_description',
-                evidence_string=page.description[:200],  # Truncate for evidence
+                evidence_string=page.description[:THIN_CONTENT_SAMPLE_LENGTH],  # Truncate for evidence
                 measured_value=len(page.description),
                 unit='characters',
                 threshold=self.THRESHOLDS['meta_description_short'],
                 severity='warning',
             )
-        elif len(page.description) > 160:
+        elif len(page.description) > META_DESCRIPTION_LONG_THRESHOLD:
             issues.long_meta_descriptions.append((url, len(page.description)))
             self._add_evidence(
                 issue_type='long_meta_descriptions',
                 url=url,
                 finding='long_meta_description',
-                evidence_string=page.description[:200],  # Truncate for evidence
+                evidence_string=page.description[:THIN_CONTENT_SAMPLE_LENGTH],  # Truncate for evidence
                 measured_value=len(page.description),
                 unit='characters',
                 threshold=self.THRESHOLDS['meta_description_long'],
@@ -330,7 +368,7 @@ class TechnicalAnalyzer:
             page: Page metadata
             issues: TechnicalIssues object to update
         """
-        if page.load_time > 3.0:
+        if page.load_time > SLOW_PAGE_THRESHOLD_SECONDS:
             issues.slow_pages.append((url, page.load_time))
             self._add_evidence(
                 issue_type='slow_pages',
@@ -353,13 +391,39 @@ class TechnicalAnalyzer:
             page: Page metadata
             issues: TechnicalIssues object to update
         """
-        if page.word_count < 300:
+        if page.word_count < THIN_CONTENT_WORD_THRESHOLD:
             issues.thin_content.append((url, page.word_count))
+
+            # Build detailed evidence explaining why content is thin
+            # (Per Gemini recommendation for enhanced thin content evidence)
+            deficit = THIN_CONTENT_WORD_THRESHOLD - page.word_count
+            deficit_pct = (deficit / THIN_CONTENT_WORD_THRESHOLD) * 100
+
+            evidence_parts = [
+                f'Word count: {page.word_count} (threshold: {THIN_CONTENT_WORD_THRESHOLD})',
+                f'Deficit: {deficit} words ({deficit_pct:.0f}% below threshold)',
+            ]
+
+            # Determine severity reason
+            if page.word_count < THIN_CONTENT_CRITICAL_THRESHOLD:
+                evidence_parts.append(f'Severity: CRITICAL (below {THIN_CONTENT_CRITICAL_THRESHOLD} words)')
+            else:
+                evidence_parts.append('Severity: WARNING (low but not critical)')
+
+            # Include content sample for context
+            if hasattr(page, 'content_text') and page.content_text:
+                content_sample = page.content_text[:THIN_CONTENT_SAMPLE_LENGTH].strip()
+                if len(page.content_text) > THIN_CONTENT_SAMPLE_LENGTH:
+                    content_sample += "..."
+                evidence_parts.append(f'Content sample: "{content_sample}"')
+
+            evidence_str = '\n'.join(evidence_parts)
+
             self._add_evidence(
                 issue_type='thin_content',
                 url=url,
                 finding='thin_content',
-                evidence_string=f'Page has {page.word_count} words',
+                evidence_string=evidence_str,
                 measured_value=page.word_count,
                 unit='words',
                 threshold=self.THRESHOLDS['thin_content'],

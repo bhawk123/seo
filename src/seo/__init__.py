@@ -27,7 +27,38 @@ from seo.models import (
 )
 from seo.config import settings
 
+# Infrastructure (ported from Spectrum per EPIC-SEO-INFRA-001)
+from seo.infrastructure import (
+    BrowserPool,
+    BrowserHealth,
+    PoolStatus,
+    ContextMetrics,
+    AdaptiveRateLimiter,
+    TokenBucketLimiter,
+    RateLimitConfig,
+    ResourceMetrics,
+)
+
+# Intelligence (ported from Spectrum per EPIC-SEO-INFRA-001)
+from seo.intelligence import (
+    SiteProfile,
+    PageProfile,
+    FormProfile,
+    SelectorEntry,
+    SelectorLibrary,
+    AICache,
+    CacheEntry,
+)
+
+# Utils (ported from Spectrum per EPIC-SEO-INFRA-001)
+from seo.utils import (
+    detect_challenge,
+    is_challenge_page,
+    handle_challenge_if_present,
+)
+
 __all__ = [
+    # Core
     "WebCrawler",
     "SiteCrawler",
     "SEOAnalyzer",
@@ -38,6 +69,7 @@ __all__ = [
     "URLStructureAnalyzer",
     "MobileSEOAnalyzer",
     "InternationalSEOAnalyzer",
+    # Models
     "PageMetadata",
     "SEOScore",
     "CrawlResult",
@@ -48,4 +80,25 @@ __all__ = [
     "ICEScore",
     "ComprehensiveSEOReport",
     "settings",
+    # Infrastructure
+    "BrowserPool",
+    "BrowserHealth",
+    "PoolStatus",
+    "ContextMetrics",
+    "AdaptiveRateLimiter",
+    "TokenBucketLimiter",
+    "RateLimitConfig",
+    "ResourceMetrics",
+    # Intelligence
+    "SiteProfile",
+    "PageProfile",
+    "FormProfile",
+    "SelectorEntry",
+    "SelectorLibrary",
+    "AICache",
+    "CacheEntry",
+    # Utils
+    "detect_challenge",
+    "is_challenge_page",
+    "handle_challenge_if_present",
 ]
