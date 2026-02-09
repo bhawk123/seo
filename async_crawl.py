@@ -634,11 +634,16 @@ async def main():
         advanced_analysis=advanced_analysis,
     )
 
-    # Save individual Lighthouse reports
+    # Save individual Lighthouse reports and coverage stats
     psi_results = crawler.get_psi_results()
     if psi_results:
         output_mgr.save_lighthouse_reports(crawl_dir, psi_results)
         print(f"✅ Saved {len(psi_results)} Lighthouse reports to {crawl_dir}/lighthouse/")
+
+    # Save PSI coverage statistics (Epic 3)
+    psi_coverage = crawler.get_psi_coverage()
+    if psi_coverage:
+        output_mgr.save_psi_coverage(crawl_dir, psi_coverage)
 
     # Generate HTML report
     print("\n" + "=" * 60)
