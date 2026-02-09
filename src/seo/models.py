@@ -4,11 +4,13 @@ from dataclasses import dataclass, field
 from typing import Optional, Any, Literal
 from datetime import datetime
 from enum import Enum
+import os
 
 
 # ============================================================================
 # Evidence Trail Models
 # ============================================================================
+
 
 class ConfidenceLevel(str, Enum):
     """Confidence levels for evidence-backed evaluations."""
@@ -32,6 +34,51 @@ class EvidenceSourceType(str, Enum):
     LLM_INFERENCE = "llm_inference"
     HEURISTIC = "heuristic"
     MEASUREMENT = "measurement"
+
+
+# -----------------------------------------------------------------------------
+# Confidence Ceiling Policy for LLM Outputs
+# -----------------------------------------------------------------------------
+# LLM-only evaluations are capped at MEDIUM confidence by default.
+#
+# RATIONALE:
+# LLMs can hallucinate facts, misinterpret data, or make confident claims
+# without verifiable sources. Capping at MEDIUM:
+#   1. Signals to users that AI outputs require verification
+#   2. Prevents false certainty in reports
+#   3. Encourages corroboration with deterministic sources (crawl data, APIs)
+#
+# OVERRIDE OPTIONS:
+# This cap can be elevated to HIGH in specific scenarios:
+#   - When LLM output is validated against crawl data (claim validation passes)
+#   - When multiple independent sources agree on the same finding
+#   - Via environment variable: LLM_CONFIDENCE_CAP=High (use with caution)
+#
+# CONFIGURATION:
+#   export LLM_CONFIDENCE_CAP=High   # Override to allow HIGH confidence
+#   export LLM_CONFIDENCE_CAP=Low    # Force LOW confidence (stricter)
+# -----------------------------------------------------------------------------
+
+def _get_llm_confidence_cap() -> ConfidenceLevel:
+    """Get the configured LLM confidence cap from environment."""
+    cap_override = os.environ.get('LLM_CONFIDENCE_CAP', '').strip()
+    if cap_override:
+        try:
+            return ConfidenceLevel(cap_override)
+        except ValueError:
+            pass  # Invalid value, use default
+    return ConfidenceLevel.MEDIUM
+
+
+# Default cap if not overridden
+DEFAULT_LLM_CONFIDENCE_CAP = ConfidenceLevel.MEDIUM
+
+# Reason logged when confidence is capped
+LLM_CONFIDENCE_CAP_REASON = (
+    "LLM-only evaluations capped at {cap} per hallucination mitigation policy. "
+    "AI outputs require verification against source data for higher confidence. "
+    "Override: set LLM_CONFIDENCE_CAP environment variable."
+)
 
 
 @dataclass
@@ -89,9 +136,12 @@ class EvidenceRecord:
     # AI-specific metadata
     ai_generated: bool = False
     model_id: Optional[str] = None
+    provider: Optional[str] = None  # openai, anthropic, etc.
+    source_api: Optional[str] = None  # Full API identifier (e.g., 'google_pagespeed_insights', 'openai_gpt_4')
     prompt_hash: Optional[str] = None
     reasoning: Optional[str] = None
     input_summary: Optional[dict] = None
+    confidence_override_reason: Optional[str] = None  # Reason if confidence was capped/modified
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -112,9 +162,12 @@ class EvidenceRecord:
             'severity': self.severity,
             'ai_generated': self.ai_generated,
             'model_id': self.model_id,
+            'provider': self.provider,
+            'source_api': self.source_api,
             'prompt_hash': self.prompt_hash,
             'reasoning': self.reasoning,
             'input_summary': self.input_summary,
+            'confidence_override_reason': self.confidence_override_reason,
         }
 
     @classmethod
@@ -190,6 +243,78 @@ class EvidenceRecord:
         )
 
     @classmethod
+    def from_browser_performance(
+        cls,
+        url: str,
+        metric_name: str,
+        metric_value: Optional[float],
+        status: str,
+        thresholds: Optional[dict] = None,
+        additional_data: Optional[dict] = None,
+    ) -> 'EvidenceRecord':
+        """Factory method for browser-captured performance metrics (CWV).
+
+        Creates evidence records for Core Web Vitals and other performance
+        metrics captured via the browser's Performance API.
+
+        Args:
+            url: The URL where metrics were captured
+            metric_name: Metric name (lcp, fcp, cls, fid, ttfb, tbt)
+            metric_value: The measured value (ms for timing, score for CLS)
+            status: CWV status (good, needs-improvement, poor, unknown)
+            thresholds: Optional dict with 'good' and 'poor' threshold values
+            additional_data: Optional dict with extra context (lcp_element, etc.)
+
+        Returns:
+            EvidenceRecord with performance metric data
+        """
+        # Determine severity based on status
+        severity_map = {
+            'good': 'info',
+            'needs-improvement': 'warning',
+            'poor': 'critical',
+            'unknown': 'info',
+        }
+        severity = severity_map.get(status, 'info')
+
+        # Determine unit based on metric
+        unit_map = {
+            'lcp': 'ms',
+            'fcp': 'ms',
+            'fid': 'ms',
+            'ttfb': 'ms',
+            'tbt': 'ms',
+            'cls': 'score',
+            'dom_content_loaded': 'ms',
+            'load': 'ms',
+        }
+        unit = unit_map.get(metric_name.lower(), 'ms')
+
+        # Build evidence string
+        if metric_value is not None:
+            if unit == 'score':
+                evidence_str = f"{metric_name.upper()}={metric_value:.3f} ({status})"
+            else:
+                evidence_str = f"{metric_name.upper()}={metric_value:.0f}{unit} ({status})"
+        else:
+            evidence_str = f"{metric_name.upper()}=N/A"
+
+        return cls(
+            component_id='browser_performance',
+            finding=f"cwv_{metric_name.lower()}:{status}",
+            evidence_string=evidence_str,
+            confidence=ConfidenceLevel.HIGH,
+            timestamp=datetime.now(),
+            source='Browser Performance API',
+            source_type=EvidenceSourceType.API_RESPONSE,
+            source_location=url,
+            threshold=thresholds,
+            measured_value=metric_value,
+            unit=unit,
+            severity=severity,
+        )
+
+    @classmethod
     def from_llm(
         cls,
         component_id: str,
@@ -198,21 +323,55 @@ class EvidenceRecord:
         reasoning: Optional[str] = None,
         input_summary: Optional[dict] = None,
         prompt_hash: Optional[str] = None,
+        provider: Optional[str] = None,
+        validated_against_data: bool = False,
     ) -> 'EvidenceRecord':
-        """Factory method for LLM-generated evidence."""
+        """Factory method for LLM-generated evidence.
+
+        Note: LLM-only evaluations start at the configured confidence cap
+        (default MEDIUM) per hallucination mitigation policy. This cap can be:
+          - Elevated if `validated_against_data=True` (claim validation passed)
+          - Configured via LLM_CONFIDENCE_CAP environment variable
+
+        Args:
+            component_id: Analysis component identifier
+            finding: The conclusion or detection result
+            model_id: LLM model used (e.g., 'gpt-4')
+            reasoning: LLM's explanation for this evaluation
+            input_summary: Summary of data provided to LLM
+            prompt_hash: SHA-256 hash of prompt for reproducibility
+            provider: LLM provider (openai, anthropic)
+            validated_against_data: True if LLM claims validated against crawl data
+        """
+        # Get configured cap
+        confidence_cap = _get_llm_confidence_cap()
+
+        # If validated against data, allow HIGH confidence
+        if validated_against_data:
+            confidence = ConfidenceLevel.HIGH
+            override_reason = (
+                "LLM output validated against crawl data - elevated from "
+                f"{confidence_cap.value} to HIGH confidence"
+            )
+        else:
+            confidence = confidence_cap
+            override_reason = LLM_CONFIDENCE_CAP_REASON.format(cap=confidence_cap.value)
+
         return cls(
             component_id=component_id,
             finding=finding,
             evidence_string=reasoning or 'AI-generated evaluation',
-            confidence=ConfidenceLevel.LOW,  # LLM evaluations always start at LOW
+            confidence=confidence,
             timestamp=datetime.now(),
             source='LLM Inference',
             source_type=EvidenceSourceType.LLM_INFERENCE,
             ai_generated=True,
             model_id=model_id,
+            provider=provider,
             prompt_hash=prompt_hash,
             reasoning=reasoning,
             input_summary=input_summary,
+            confidence_override_reason=override_reason,
         )
 
 
@@ -444,6 +603,8 @@ class TechnicalIssues:
     """Technical SEO issues found during analysis."""
 
     missing_titles: list[str] = field(default_factory=list)
+    short_titles: list[tuple[str, int]] = field(default_factory=list)  # (url, length)
+    long_titles: list[tuple[str, int]] = field(default_factory=list)  # (url, length)
     duplicate_titles: dict[str, list[str]] = field(default_factory=dict)
     missing_meta_descriptions: list[str] = field(default_factory=list)
     short_meta_descriptions: list[tuple[str, int]] = field(default_factory=list)
@@ -506,6 +667,18 @@ class URLStructureAnalysis:
 
 
 @dataclass
+class ICEJustification:
+    """Structured justification for ICE score components."""
+
+    impact_justification: str = ""  # Why this impact score (SEO/traffic benefit)
+    confidence_justification: str = ""  # Why this confidence (data reliability)
+    ease_justification: str = ""  # Why this ease (implementation effort)
+    references_data: bool = False  # Whether justifications cite actual data
+    source_metric: Optional[str] = None  # Metric this relates to (e.g., missing_meta_descriptions)
+    source_value: Optional[int] = None  # Actual value from crawl data
+
+
+@dataclass
 class ICEScore:
     """ICE Framework score for prioritization."""
 
@@ -517,6 +690,7 @@ class ICEScore:
     description: str = ""
     implementation_steps: list[str] = field(default_factory=list)
     expected_outcome: str = ""
+    justification: Optional[ICEJustification] = None  # Structured ICE justification
 
 
 @dataclass

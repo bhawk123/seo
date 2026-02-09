@@ -8,7 +8,7 @@ SAFETY: Avoids submitting payment forms when possible.
 import re
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from pathlib import Path
 import yaml
 
@@ -17,6 +17,18 @@ try:
     FAKER_AVAILABLE = True
 except ImportError:
     FAKER_AVAILABLE = False
+
+# Optional SelectorLibrary integration (Epic 11.2.2)
+if TYPE_CHECKING:
+    from seo.intelligence.selector_library import SelectorLibrary
+
+# Optional HumanSimulator integration (Epic 9.2.4)
+try:
+    from seo.utils.human_simulator import HumanSimulator
+    HUMAN_SIMULATOR_AVAILABLE = True
+except ImportError:
+    HUMAN_SIMULATOR_AVAILABLE = False
+    HumanSimulator = None
 
 logger = logging.getLogger(__name__)
 
@@ -343,6 +355,9 @@ class FormHandler:
         address_yaml_path: Optional[Path] = None,
         randomize: bool = False,
         locale: str = "en_US",
+        selector_library: Optional["SelectorLibrary"] = None,
+        site_id: Optional[str] = None,
+        human_simulator: Optional["HumanSimulator"] = None,
     ):
         """
         Initialize form handler.
@@ -352,12 +367,26 @@ class FormHandler:
             address_yaml_path: Path to address.yaml for address data
             randomize: If True, generate random test data using Faker
             locale: Faker locale for random data (default: en_US)
+            selector_library: Optional SelectorLibrary for intelligent selector management
+            site_id: Site identifier for site-specific selector storage
+            human_simulator: Optional HumanSimulator for human-like typing (Epic 9.2.4)
         """
         if randomize:
             self.test_data = generate_random_test_data(locale)
             logger.info(f"Using randomized test data (locale: {locale})")
         else:
             self.test_data = test_data or TEST_DATA.copy()
+
+        # SelectorLibrary integration (Epic 11.2.2)
+        self._selector_library = selector_library
+        self._site_id = site_id
+        if selector_library and site_id:
+            logger.info(f"FormHandler using SelectorLibrary for site: {site_id}")
+
+        # HumanSimulator integration (Epic 9.2.4)
+        self._human_simulator = human_simulator
+        if human_simulator:
+            logger.info("FormHandler using HumanSimulator for human-like typing")
 
         # Load addresses from yaml if provided (overrides random address data)
         if address_yaml_path and address_yaml_path.exists():
@@ -389,6 +418,102 @@ class FormHandler:
                 logger.info(f"Loaded test address: {self.test_data['address']}, {self.test_data['city']}")
         except Exception as e:
             logger.warning(f"Could not load address.yaml: {e}")
+
+    async def _try_library_selectors(
+        self,
+        page,
+        purpose: str,
+        fallback_selector: str,
+    ) -> Tuple[Optional[any], Optional[str], Optional[str], bool]:
+        """
+        Try to find an element using SelectorLibrary selectors first, then fallback.
+
+        Args:
+            page: Playwright page
+            purpose: Field classification/purpose (e.g., 'email', 'first_name')
+            fallback_selector: Fallback selector from form analysis
+
+        Returns:
+            Tuple of (element, selector_used, primary_selector, is_alternative)
+            - element: The found element or None
+            - selector_used: The selector that worked
+            - primary_selector: The primary selector from library (for comparison)
+            - is_alternative: True if a non-primary selector was used
+        """
+        selectors_to_try = []
+        primary_selector = None
+        is_first = True
+
+        # Get selectors from library if available (Epic 11.2.2)
+        if self._selector_library and self._site_id:
+            library_selectors = self._selector_library.get_selector_with_fallbacks(
+                self._site_id, purpose
+            )
+            for entry in library_selectors:
+                # First one is the primary
+                if is_first:
+                    primary_selector = entry.selector
+                    is_first = False
+                selectors_to_try.append((entry.selector, True, entry.selector == primary_selector))
+
+        # Always add the fallback selector from form analysis
+        selectors_to_try.append((fallback_selector, False, False))
+
+        # Try each selector in order
+        for selector, from_library, is_primary in selectors_to_try:
+            try:
+                element = await page.query_selector(selector)
+                if element:
+                    is_alternative = from_library and not is_primary
+                    if from_library:
+                        if is_primary:
+                            logger.debug(f"Found element using primary library selector: {selector}")
+                        else:
+                            logger.debug(f"Found element using alternative library selector: {selector}")
+                    return element, selector, primary_selector, is_alternative
+            except Exception:
+                continue
+
+        return None, None, primary_selector, False
+
+    async def _record_selector_result(
+        self,
+        purpose: str,
+        selector: str,
+        success: bool,
+        is_alternative: bool = False,
+    ) -> None:
+        """
+        Record success/failure for a selector in the library.
+
+        For alternative selectors, uses record_alternative_result() to enable
+        lifecycle management features like promotion and comparison.
+
+        Args:
+            purpose: Field classification/purpose
+            selector: The selector that was used
+            success: Whether the selector worked
+            is_alternative: True if this was a fallback/alternative selector
+        """
+        if not self._selector_library or not self._site_id:
+            return
+
+        try:
+            if is_alternative:
+                # Record result for alternative selector (enables lifecycle management)
+                self._selector_library.record_alternative_result(
+                    self._site_id, purpose, selector, success
+                )
+                if success:
+                    logger.debug(f"Recorded alternative selector success: {selector}")
+            else:
+                # Record result for primary selector
+                if success:
+                    self._selector_library.record_success(self._site_id, purpose)
+                else:
+                    self._selector_library.record_failure(self._site_id, purpose)
+        except Exception as e:
+            logger.debug(f"Could not record selector result: {e}")
 
     async def analyze_form(self, page, form_selector: str = "form") -> Optional[FormAnalysis]:
         """
@@ -499,6 +624,9 @@ class FormHandler:
         """
         Fill form fields with test data.
 
+        Uses SelectorLibrary for intelligent selector selection when available (Epic 11.2.2).
+        Falls back to form analysis selectors if library is not configured.
+
         Args:
             page: Playwright page
             analysis: FormAnalysis from analyze_form()
@@ -524,37 +652,61 @@ class FormHandler:
                     elif field.field_type != "select":
                         continue
 
-                # Fill the field
-                element = await page.query_selector(field.selector)
+                # Try to find element using library selectors first, then fallback (Epic 11.2.2)
+                element, used_selector, primary_selector, is_alternative = await self._try_library_selectors(
+                    page,
+                    field.classification,
+                    field.selector,
+                )
                 if not element:
+                    await self._record_selector_result(field.classification, field.selector, False, is_alternative=False)
                     continue
 
+                fill_success = False
                 if field.field_type == "select":
                     # Handle select dropdowns - pick first valid option if no specific value
                     if value:
                         try:
                             await element.select_option(value=value)
+                            fill_success = True
                         except:
-                            await self._select_first_option(element)
+                            fill_success = await self._select_first_option(element)
                     else:
-                        await self._select_first_option(element)
+                        fill_success = await self._select_first_option(element)
                 elif field.field_type == "checkbox":
                     # Check if not already checked
                     is_checked = await element.is_checked()
                     if not is_checked:
                         await element.check()
+                    fill_success = True
                 elif field.field_type == "radio":
                     await element.check()
+                    fill_success = True
                 else:
-                    # Text inputs
-                    await element.fill("")
-                    await element.type(str(value), delay=30)
+                    # Text inputs - use HumanSimulator if available (Epic 9.2.4)
+                    if self._human_simulator:
+                        chars, typos = await self._human_simulator.type_text(
+                            page, used_selector, str(value), clear_first=True
+                        )
+                        fill_success = chars > 0
+                    else:
+                        await element.fill("")
+                        await element.type(str(value), delay=30)
+                        fill_success = True
 
-                logger.info(f"Filled {field.classification}: {field.selector}")
-                filled_count += 1
+                # Record success/failure in SelectorLibrary (Epic 11.2.2)
+                # Uses record_alternative_result for fallbacks to enable lifecycle management
+                await self._record_selector_result(
+                    field.classification, used_selector, fill_success, is_alternative=is_alternative
+                )
+
+                if fill_success:
+                    logger.info(f"Filled {field.classification}: {used_selector}")
+                    filled_count += 1
 
             except Exception as e:
                 logger.debug(f"Could not fill {field.selector}: {e}")
+                await self._record_selector_result(field.classification, field.selector, False, is_alternative=False)
                 continue
 
         return filled_count > 0

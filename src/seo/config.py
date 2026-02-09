@@ -136,6 +136,19 @@ class AnalysisThresholds:
     social_og_coverage_target: float = 80.0  # Target OG coverage %
     social_twitter_coverage_target: float = 80.0  # Target Twitter coverage %
 
+    # Human-like interaction simulation (Epic 9.2.4)
+    human_sim_min_char_delay_ms: int = 50  # Minimum typing delay per character
+    human_sim_max_char_delay_ms: int = 150  # Maximum typing delay per character
+    human_sim_typo_rate: float = 0.05  # Probability of typo per character (0.0-1.0)
+    human_sim_typo_correction_delay_ms: int = 100  # Delay before correcting typo
+    human_sim_min_pause_seconds: float = 0.3  # Minimum thinking pause
+    human_sim_max_pause_seconds: float = 1.5  # Maximum thinking pause
+    human_sim_pre_click_delay_ms: int = 100  # Delay before clicking
+    human_sim_max_click_offset_px: int = 3  # Random offset added to clicks
+    human_sim_mouse_move_steps: int = 10  # Steps in mouse movement
+    human_sim_mouse_move_jitter_px: int = 2  # Jitter added to mouse movement
+    human_sim_fast_mode: bool = False  # Skip all human simulation when True
+
     @classmethod
     def from_env(cls) -> "AnalysisThresholds":
         """Load thresholds from environment variables.
