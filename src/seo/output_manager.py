@@ -114,6 +114,14 @@ class OutputManager:
         issues_dict = {
             "missing_titles": technical_issues.missing_titles,
             "duplicate_titles": technical_issues.duplicate_titles,
+            "short_titles": [
+                {"url": url, "length": length}
+                for url, length in technical_issues.short_titles
+            ],
+            "long_titles": [
+                {"url": url, "length": length}
+                for url, length in technical_issues.long_titles
+            ],
             "missing_meta_descriptions": technical_issues.missing_meta_descriptions,
             "short_meta_descriptions": [
                 {"url": url, "length": length}
@@ -194,10 +202,17 @@ class OutputManager:
             report_path = lighthouse_dir / f"{filename}.json"
 
             # Add URL to data for reference
+            # Include Lighthouse metadata for full provenance (Epic 3)
             report_data = {
                 "url": url,
                 "strategy": psi_data.get("strategy", "mobile"),
                 "fetch_time": psi_data.get("fetch_time"),
+                "lighthouse_metadata": {
+                    "version": psi_data.get("lighthouse_version"),
+                    "user_agent": psi_data.get("user_agent"),
+                    "final_url": psi_data.get("final_url"),
+                    "run_warnings": psi_data.get("run_warnings", []),
+                },
                 "scores": {
                     "performance": psi_data.get("performance_score"),
                     "accessibility": psi_data.get("accessibility_score"),

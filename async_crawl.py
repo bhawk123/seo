@@ -121,8 +121,9 @@ def generate_llm_recommendations(
     crawl_stats,
     advanced_analysis,
     config,
+    start_url: str = None,
 ):
-    """Generate LLM-powered SEO recommendations.
+    """Generate LLM-powered SEO recommendations with evidence tracking.
 
     Args:
         site_data: Dictionary of URL to PageMetadata
@@ -130,14 +131,15 @@ def generate_llm_recommendations(
         crawl_stats: Crawl statistics dict
         advanced_analysis: Advanced analysis dict (already serialized to dicts)
         config: Config object with LLM settings
+        start_url: URL of the site being analyzed (for evidence)
 
     Returns:
-        LLM-generated recommendations string
+        Tuple of (recommendations_string, evidence_records_list)
     """
     from seo.llm import LLMClient
 
     if not config.llm_api_key:
-        return "Error: LLM_API_KEY not set in .env file"
+        return "Error: LLM_API_KEY not set in .env file", []
 
     try:
         llm = LLMClient(
@@ -146,7 +148,7 @@ def generate_llm_recommendations(
             provider=config.llm_provider,
         )
     except Exception as e:
-        return f"Error initializing LLM client: {e}"
+        return f"Error initializing LLM client: {e}", []
 
     # Prepare issues summary
     issues_summary = {
@@ -298,10 +300,14 @@ IMPORTANT: Do NOT include any closing questions, offers for further assistance, 
 
     try:
         print("Generating LLM recommendations...")
-        response = llm._call_llm(prompt)
-        return response
+        response, evidence = llm.generate_recommendations_with_evidence(
+            prompt=prompt,
+            site_url=start_url or list(site_data.keys())[0] if site_data else 'unknown',
+            crawl_stats=crawl_stats,
+        )
+        return response, evidence
     except Exception as e:
-        return f"Failed to generate LLM recommendations: {e}"
+        return f"Failed to generate LLM recommendations: {e}", []
 
 
 async def main():
@@ -606,22 +612,28 @@ async def main():
     print("Advanced analysis complete.")
 
     # Generate LLM recommendations (enabled by default)
+    llm_evidence = []
     if not args.no_llm and config.llm_api_key:
         print("\n" + "=" * 60)
         print("Generating LLM Recommendations...")
         print("=" * 60)
-        llm_recommendations = generate_llm_recommendations(
+        llm_recommendations, llm_evidence = generate_llm_recommendations(
             site_data=site_data,
             technical_issues=technical_issues,
             crawl_stats=crawl_stats,
             advanced_analysis=advanced_analysis,
             config=config,
+            start_url=start_url,
         )
         print("LLM recommendations generated.")
     elif args.no_llm:
         llm_recommendations = "LLM recommendations disabled (--no-llm flag)."
     else:
         llm_recommendations = "Note: Set LLM_API_KEY in .env to enable AI-powered recommendations."
+
+    # Add LLM evidence to advanced_analysis (Epic 1)
+    if llm_evidence:
+        advanced_analysis['llm_evidence'] = llm_evidence
 
     # Save crawl results with advanced_analysis for reports
     output_mgr.save_crawl_results(
@@ -639,6 +651,12 @@ async def main():
     if psi_results:
         output_mgr.save_lighthouse_reports(crawl_dir, psi_results)
         print(f"✅ Saved {len(psi_results)} Lighthouse reports to {crawl_dir}/lighthouse/")
+
+        # Create CWV EvidenceRecords (Epic 3)
+        from seo.external.pagespeed_insights import psi_results_to_evidence
+        cwv_evidence = psi_results_to_evidence(psi_results)
+        if cwv_evidence:
+            advanced_analysis['cwv_evidence'] = cwv_evidence
 
     # Save PSI coverage statistics (Epic 3)
     psi_coverage = crawler.get_psi_coverage()

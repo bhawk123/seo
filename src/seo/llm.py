@@ -552,6 +552,82 @@ Where [N] is the count of items in each array.
 
         raise last_exception
 
+    def generate_recommendations_with_evidence(
+        self,
+        prompt: str,
+        site_url: str,
+        crawl_stats: dict,
+    ) -> tuple[str, list[dict]]:
+        """Generate SEO recommendations with proper evidence tracking.
+
+        Creates EvidenceRecords for the LLM call including model, provider,
+        and prompt hash for full traceability (Epic 1).
+
+        Args:
+            prompt: The prompt to send
+            site_url: URL of the site being analyzed
+            crawl_stats: Crawl statistics for input summary
+
+        Returns:
+            Tuple of (recommendations_text, evidence_records_list)
+        """
+        import hashlib
+
+        # Create prompt hash for traceability
+        prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:16]
+        input_summary = f"Site: {site_url}, Pages: {crawl_stats.get('total_pages', 0)}"
+
+        evidence_records = []
+
+        try:
+            # Call LLM
+            response = self._call_llm(prompt)
+
+            # Create success evidence record
+            record = EvidenceRecord(
+                component_id='llm_recommendations',
+                finding='seo_recommendations_generated',
+                evidence_string=f'Generated SEO recommendations for {site_url}',
+                confidence=ConfidenceLevel.MEDIUM,  # LLM outputs capped at MEDIUM
+                timestamp=datetime.now(),
+                source=self.SOURCE_LABEL,
+                source_type=EvidenceSourceType.LLM_INFERENCE,
+                source_location=site_url,
+                ai_generated=True,
+                model_id=self.model,
+                provider=self.provider,
+                source_api=self.source_api,
+                prompt_hash=prompt_hash,
+                input_summary=input_summary,
+                reasoning=f'LLM analysis of {crawl_stats.get("total_pages", 0)} pages',
+                confidence_override_reason='LLM-only evaluations capped at MEDIUM per hallucination mitigation policy',
+            )
+            evidence_records.append(record.to_dict())
+
+            return response, evidence_records
+
+        except Exception as e:
+            # Create error evidence record
+            error_record = EvidenceRecord(
+                component_id='llm_recommendations',
+                finding='seo_recommendations_failed',
+                evidence_string=f'Failed to generate recommendations: {str(e)}',
+                confidence=ConfidenceLevel.HIGH,
+                timestamp=datetime.now(),
+                source=self.SOURCE_LABEL,
+                source_type=EvidenceSourceType.LLM_INFERENCE,
+                source_location=site_url,
+                ai_generated=False,
+                model_id=self.model,
+                provider=self.provider,
+                source_api=self.source_api,
+                prompt_hash=prompt_hash,
+                input_summary=input_summary,
+                severity='error',
+            )
+            evidence_records.append(error_record.to_dict())
+            raise
+
     def _call_openai(self, prompt: str) -> str:
         """Call OpenAI API.
 

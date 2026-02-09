@@ -363,3 +363,94 @@ class PageSpeedInsightsAPI:
             ),
             'requests_in_window': len(self.request_times),
         }
+
+
+def psi_results_to_evidence(psi_results: Dict[str, Dict]) -> List[Dict]:
+    """Convert PSI results to CWV EvidenceRecords.
+
+    Creates structured evidence records for each Core Web Vital metric
+    with proper source attribution (Epic 3).
+
+    Args:
+        psi_results: Dictionary mapping URL to PSI result data
+
+    Returns:
+        List of EvidenceRecord dicts for CWV metrics
+    """
+    from seo.models import EvidenceRecord
+
+    records = []
+
+    # CWV thresholds (Google's official thresholds)
+    CWV_THRESHOLDS = {
+        'lcp': {'good': 2500, 'poor': 4000, 'unit': 'ms'},
+        'fcp': {'good': 1800, 'poor': 3000, 'unit': 'ms'},
+        'cls': {'good': 0.1, 'poor': 0.25, 'unit': 'score'},
+        'tbt': {'good': 200, 'poor': 600, 'unit': 'ms'},
+        'tti': {'good': 3800, 'poor': 7300, 'unit': 'ms'},
+        'si': {'good': 3400, 'poor': 5800, 'unit': 'ms'},
+    }
+
+    for url, psi_data in psi_results.items():
+        strategy = psi_data.get('strategy', 'mobile')
+
+        # Create evidence for each CWV metric
+        for metric_key, thresholds in CWV_THRESHOLDS.items():
+            value = psi_data.get(metric_key)
+            if value is None:
+                continue
+
+            # Determine status
+            if metric_key == 'cls':
+                if value <= thresholds['good']:
+                    status = 'good'
+                elif value <= thresholds['poor']:
+                    status = 'needs_improvement'
+                else:
+                    status = 'poor'
+            else:
+                if value <= thresholds['good']:
+                    status = 'good'
+                elif value <= thresholds['poor']:
+                    status = 'needs_improvement'
+                else:
+                    status = 'poor'
+
+            record = EvidenceRecord.from_browser_performance(
+                url=url,
+                metric_name=metric_key.upper(),
+                metric_value=value,
+                status=status,
+                thresholds=thresholds,
+                additional_data={
+                    'strategy': strategy,
+                    'source': 'PageSpeed Insights API',
+                    'lighthouse_version': psi_data.get('lighthouse_version'),
+                },
+            )
+            records.append(record.to_dict())
+
+        # Create evidence for performance score
+        perf_score = psi_data.get('performance_score')
+        if perf_score is not None:
+            if perf_score >= 90:
+                status = 'good'
+            elif perf_score >= 50:
+                status = 'needs_improvement'
+            else:
+                status = 'poor'
+
+            record = EvidenceRecord.from_browser_performance(
+                url=url,
+                metric_name='PERFORMANCE_SCORE',
+                metric_value=perf_score,
+                status=status,
+                thresholds={'good': 90, 'poor': 50, 'unit': 'score'},
+                additional_data={
+                    'strategy': strategy,
+                    'source': 'PageSpeed Insights API',
+                },
+            )
+            records.append(record.to_dict())
+
+    return records
